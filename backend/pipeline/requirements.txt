@@ -1,0 +1,3 @@
+# LawTrack AI Phase-1 pipeline (reference scaffold)
+anthropic>=0.69
+pydantic>=2.0
