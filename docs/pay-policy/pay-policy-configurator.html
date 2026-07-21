@@ -1,0 +1,723 @@
+<title>Pay Policy Configurator</title>
+<style>
+  :root{
+    --bg:#f5f6f9; --surface:#ffffff; --surface-2:#eef1f6; --border:#e2e5ec; --border-strong:#cfd4de;
+    --ink:#1b1e27; --ink-2:#464d5e; --muted:#79808f; --accent:#4b56c9; --accent-ink:#ffffff; --accent-soft:#ebedf9;
+    --ok:#1f8f5f; --ok-soft:#e3f2ea; --warn:#a9711b; --warn-soft:#f6ecd8; --target:#6b4fd8; --target-soft:#eee9fb; --region:#2c7c99; --region-soft:#e1eff4;
+    --shadow:0 1px 2px rgba(20,30,60,.04),0 4px 16px rgba(20,30,60,.05);
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --bg:#13151b; --surface:#1b1e26; --surface-2:#232733; --border:#2b303c; --border-strong:#3b4251;
+      --ink:#e9ebf1; --ink-2:#b4bac8; --muted:#7f8698; --accent:#8b93f0; --accent-ink:#12141a; --accent-soft:#262a3d;
+      --ok:#4fcb8d; --ok-soft:#15271e; --warn:#e0ab52; --warn-soft:#2a2213; --target:#a78cf5; --target-soft:#221c33; --region:#57b6d4; --region-soft:#0f262d;
+      --shadow:0 1px 2px rgba(0,0,0,.3),0 6px 20px rgba(0,0,0,.28);
+    }
+  }
+  :root[data-theme="light"]{
+    --bg:#f5f6f9; --surface:#ffffff; --surface-2:#eef1f6; --border:#e2e5ec; --border-strong:#cfd4de;
+    --ink:#1b1e27; --ink-2:#464d5e; --muted:#79808f; --accent:#4b56c9; --accent-ink:#ffffff; --accent-soft:#ebedf9;
+    --ok:#1f8f5f; --ok-soft:#e3f2ea; --warn:#a9711b; --warn-soft:#f6ecd8; --target:#6b4fd8; --target-soft:#eee9fb; --region:#2c7c99; --region-soft:#e1eff4;
+    --shadow:0 1px 2px rgba(20,30,60,.04),0 4px 16px rgba(20,30,60,.05);
+  }
+  :root[data-theme="dark"]{
+    --bg:#13151b; --surface:#1b1e26; --surface-2:#232733; --border:#2b303c; --border-strong:#3b4251;
+    --ink:#e9ebf1; --ink-2:#b4bac8; --muted:#7f8698; --accent:#8b93f0; --accent-ink:#12141a; --accent-soft:#262a3d;
+    --ok:#4fcb8d; --ok-soft:#15271e; --warn:#e0ab52; --warn-soft:#2a2213; --target:#a78cf5; --target-soft:#221c33; --region:#57b6d4; --region-soft:#0f262d;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 6px 20px rgba(0,0,0,.28);
+  }
+
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased;}
+
+  /* App bar */
+  .appbar{position:sticky;top:0;z-index:30;background:color-mix(in srgb,var(--surface) 88%,transparent);
+    backdrop-filter:saturate(1.4) blur(8px);border-bottom:1px solid var(--border);}
+  .appbar .inner{max-width:1240px;margin:0 auto;padding:11px 24px;display:flex;align-items:center;gap:16px;flex-wrap:wrap;}
+  .brand h1{margin:0;font-size:16px;font-weight:700;letter-spacing:-.01em;}
+  .brand p{margin:2px 0 0;font-size:12px;color:var(--muted);}
+  .spacer{flex:1 1 30px;}
+  .actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+  .progress{font-size:12.5px;color:var(--muted);}
+  .progress b{color:var(--ink);font-weight:600;}
+
+  /* Segmented control */
+  .seg{display:inline-flex;background:var(--surface-2);border:1px solid var(--border);border-radius:9px;padding:3px;gap:2px;}
+  .seg button{font:inherit;font-size:13px;font-weight:600;border:none;background:transparent;color:var(--ink-2);
+    padding:6px 13px;border-radius:7px;cursor:pointer;transition:background .12s,color .12s;}
+  .seg button.on{background:var(--accent);color:var(--accent-ink);}
+
+  /* Buttons */
+  .btn{font:inherit;font-size:13.5px;font-weight:600;padding:8px 14px;border-radius:9px;
+    border:1px solid var(--border-strong);background:var(--surface);color:var(--ink);cursor:pointer;
+    transition:background .14s,border-color .14s,filter .14s;}
+  .btn:hover{background:var(--surface-2);}
+  .btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+  .btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);}
+  .btn.primary:hover{filter:brightness(1.07);background:var(--accent);}
+  .btn.ghost{border-color:transparent;background:transparent;color:var(--ink-2);}
+  .btn.ghost:hover{background:var(--surface-2);}
+  .btn.small{padding:4px 10px;font-size:12px;border-radius:7px;}
+
+  .dl{display:none;align-items:center;gap:8px;font-size:12.5px;color:var(--muted);
+    background:var(--ok-soft);border:1px solid color-mix(in srgb,var(--ok) 30%,transparent);border-radius:8px;padding:5px 10px;}
+  .dl a{color:var(--ok);font-weight:700;text-decoration:none;}
+  .dl a:hover{text-decoration:underline;}
+
+  /* Layout */
+  .layout{max-width:1240px;margin:0 auto;padding:24px;display:grid;grid-template-columns:220px minmax(0,1fr);gap:34px;align-items:start;}
+  .sidebar{position:sticky;top:78px;}
+  .nav{display:flex;flex-direction:column;gap:2px;}
+  .nav button{text-align:left;display:flex;justify-content:space-between;align-items:center;gap:10px;
+    padding:9px 12px;border-radius:9px;border:none;background:transparent;color:var(--ink-2);
+    font:inherit;font-size:14px;font-weight:500;cursor:pointer;transition:background .12s,color .12s;}
+  .nav button:hover{background:var(--surface-2);}
+  .nav button.active{background:var(--accent-soft);color:var(--accent);font-weight:600;}
+  .nav .count{font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums;}
+  .nav button.active .count{color:var(--accent);}
+  .nav button:focus-visible{outline:2px solid var(--accent);outline-offset:1px;}
+  .legend{margin-top:18px;padding-top:16px;border-top:1px solid var(--border);font-size:11px;color:var(--muted);line-height:2.1;}
+
+  /* Cards */
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:14px;
+    padding:2px 22px 8px;margin-bottom:20px;box-shadow:var(--shadow);}
+  .card-head{padding:18px 0 4px;}
+  .card-head h2{margin:0;font-size:15px;font-weight:700;letter-spacing:-.005em;}
+  .card-head p{margin:6px 0 0;font-size:13px;color:var(--muted);max-width:74ch;line-height:1.55;}
+
+  .items>*{padding:16px 0;}
+  .items>*+*{border-top:1px solid var(--border);}
+  .items>*+.note{border-top:none;}
+
+  /* Field row */
+  .field{display:grid;grid-template-columns:minmax(0,1fr) minmax(190px,300px);gap:10px 30px;align-items:center;}
+  .lbl{font-weight:600;font-size:14px;color:var(--ink);}
+  .help{margin-top:5px;font-size:12.5px;color:var(--muted);line-height:1.5;max-width:66ch;}
+  .control{display:flex;justify-content:flex-end;}
+  .control>input,.control>select,.control>textarea,.control .num,.control .multi{width:100%;}
+
+  input[type=text],input[type=number],input[type=date],input[type=time],select,textarea{
+    font:inherit;font-size:14px;color:var(--ink);background:var(--surface-2);
+    border:1px solid var(--border-strong);border-radius:8px;padding:8px 10px;width:100%;transition:border-color .12s,box-shadow .12s;}
+  textarea{resize:vertical;min-height:64px;line-height:1.5;}
+  input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft);}
+  select{appearance:none;background-image:linear-gradient(45deg,transparent 50%,var(--muted) 50%),linear-gradient(135deg,var(--muted) 50%,transparent 50%);
+    background-position:calc(100% - 16px) 55%,calc(100% - 11px) 55%;background-size:5px 5px,5px 5px;background-repeat:no-repeat;padding-right:30px;}
+  .num{display:flex;align-items:center;gap:8px;}
+  .num input{flex:1;}
+  .num .unit{font-size:12.5px;color:var(--muted);white-space:nowrap;}
+
+  /* Switch */
+  .switch{position:relative;flex:0 0 auto;width:44px;height:26px;border-radius:999px;background:var(--border-strong);
+    border:none;cursor:pointer;padding:0;transition:background .15s;}
+  .switch::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;
+    background:#fff;transition:transform .16s;box-shadow:0 1px 2px rgba(0,0,0,.35);}
+  .switch[aria-checked=true]{background:var(--accent);}
+  .switch[aria-checked=true]::after{transform:translateX(18px);}
+  .switch:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+
+  /* Multiselect */
+  .multi{display:flex;flex-wrap:wrap;gap:8px 14px;}
+  .chk{display:flex;align-items:center;gap:7px;font-size:13.5px;color:var(--ink-2);cursor:pointer;}
+  .chk input{width:16px;height:16px;accent-color:var(--accent);}
+
+  /* Pills */
+  .pills{display:inline-flex;gap:5px;margin-left:9px;flex-wrap:wrap;vertical-align:middle;}
+  .pill{font-size:10px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;padding:2px 7px;border-radius:999px;
+    border:1px solid transparent;line-height:1.4;white-space:nowrap;}
+  .pill.ok{color:var(--ok);background:var(--ok-soft);}
+  .pill.warn{color:var(--warn);background:var(--warn-soft);}
+  .pill.target{color:var(--target);background:var(--target-soft);}
+  .pill.region{color:var(--region);background:var(--region-soft);}
+
+  /* Note callout */
+  .note{background:var(--surface-2);border-left:3px solid var(--accent);border-radius:0 8px 8px 0;
+    padding:12px 15px!important;margin:6px 0 2px;font-size:12.5px;color:var(--ink-2);line-height:1.6;}
+  .note.warn{border-left-color:var(--warn);}
+  .note b{color:var(--ink);}
+
+  /* Tables */
+  .block .lbl-block{margin-bottom:12px;}
+  .tbl-wrap{overflow-x:auto;border:1px solid var(--border);border-radius:10px;}
+  table.grid{width:100%;border-collapse:collapse;font-size:13.5px;min-width:640px;}
+  .grid th{text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);
+    font-weight:700;padding:9px 10px;background:var(--surface-2);border-bottom:1px solid var(--border);white-space:nowrap;}
+  .grid td{padding:6px 8px;border-bottom:1px solid var(--border);vertical-align:middle;}
+  .grid tr:last-child td{border-bottom:none;}
+  .grid input,.grid select{font-size:13px;padding:6px 8px;min-width:80px;}
+  .grid td:last-child{width:1%;white-space:nowrap;text-align:right;}
+
+  /* Toast */
+  .toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(16px);
+    background:var(--ink);color:var(--bg);padding:11px 20px;border-radius:10px;font-size:13px;font-weight:500;
+    opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;z-index:60;max-width:90vw;box-shadow:var(--shadow);}
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+
+  @media (max-width:880px){
+    .layout{grid-template-columns:1fr;gap:14px;padding:16px;}
+    .sidebar{position:static;}
+    .nav{flex-direction:row;overflow-x:auto;gap:4px;padding-bottom:4px;}
+    .nav button{white-space:nowrap;flex:0 0 auto;}
+    .legend{display:none;}
+  }
+  @media (max-width:560px){
+    .field{grid-template-columns:1fr;gap:10px;}
+    .control{justify-content:flex-start;}
+    .appbar .inner{padding:10px 16px;}
+  }
+  @media (prefers-reduced-motion:reduce){*{transition:none!important;}}
+</style>
+
+<div class="appbar"><div class="inner">
+  <div class="brand"><h1>Pay Policy Configurator</h1><p>day.io &middot; faithful to the product UI (2026-07-08) &middot; every configuration</p></div>
+  <div class="spacer"></div>
+  <div class="actions">
+    <div class="seg" id="seg">
+      <button data-mode="policy" class="on">Pay Policy</button>
+      <button data-mode="exception">Exception</button>
+    </div>
+    <span class="progress" id="progress">0 / 0 set</span>
+    <div class="dl" id="dl"><span>Google Sheet:</span><a id="dl-link" href="https://sheets.new" target="_blank" rel="noopener">https://sheets.new</a><span style="color:var(--muted)">&middot;</span><a id="dl-copy" href="#">Copy link</a></div>
+    <button class="btn" id="copy" title="Copy all settings as tab-separated text — paste into Google Sheets">Copy for Sheets</button>
+    <button class="btn primary" id="export" title="Copy the config and open a new Google Sheet to paste it into">Open in Google Sheets</button>
+    <button class="btn ghost" id="theme">Dark</button>
+  </div>
+</div></div>
+
+<div class="layout">
+  <aside class="sidebar">
+    <nav class="nav" id="nav"></nav>
+    <div class="legend">
+      <span class="pill ok">Current</span> in product today<br>
+      <span class="pill target">Target</span> designed &middot; not in UI<br>
+      <span class="pill region">Brazil?</span> CLT-specific, unconfirmed<br>
+      <span class="pill warn">?</span> detail to confirm
+    </div>
+  </aside>
+  <main id="main"></main>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function(){
+"use strict";
+
+/* ---------- tag metadata ---------- */
+var TAGS={C:{label:"Current",cls:"ok"},T:{label:"Target",cls:"target"},BR:{label:"Brazil?",cls:"region"},Q:{label:"?",cls:"warn"}};
+
+/* ---------- day-group option lists (from the product) ---------- */
+var DAYS_SPECIFIC=["Monday - Friday","Monday - Saturday","Sunday - Thursday","All days","Holidays","Friday - Saturday","Sunday & Holidays","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday","DSR & Rest days"];
+var DAYS_PLANNED=["Planned work days","Not planned work days","DSR & Rest days"];
+var OPTION_FNS={
+  rateDays:function(){ return state.splitRatesBy==="Planned & Non-planned days" ? DAYS_PLANNED : DAYS_SPECIFIC; },
+  daysSpecific:function(){ return DAYS_SPECIFIC; }
+};
+
+/* ---------- table column defs ---------- */
+var RATE_COLS=[
+  {key:"days",label:"Days",type:"select",optionsKey:"rateDays"},
+  {key:"phase",label:"Phase",type:"select",options:["Combined","Day","Night"]},
+  {key:"rate",label:"Rate",type:"text"},
+  {key:"unit",label:"%/×",type:"select",options:["%","×"]},
+  {key:"bhSplit",label:"BH split %",type:"text"},
+  {key:"name",label:"Payroll event name",type:"text"},
+  {key:"limit",label:"Up-to limit (h)",type:"text"}
+];
+var EXC_RATE_COLS=[
+  {key:"days",label:"Days",type:"select",optionsKey:"daysSpecific"},
+  {key:"phase",label:"Phase",type:"select",options:["Combined","Day","Night"]},
+  {key:"rate",label:"Rate",type:"text"},
+  {key:"unit",label:"%/×",type:"select",options:["%","×"]},
+  {key:"name",label:"Payroll event name",type:"text"},
+  {key:"limit",label:"Up-to limit (h)",type:"text"}
+];
+var DIST_COLS=[
+  {key:"period",label:"Period",type:"select",optionsKey:"daysSpecific"},
+  {key:"hoursType",label:"Hours type",type:"select",options:["Planned hours","Non-planned hours","every_hour (?)"]},
+  {key:"rangeStart",label:"Range start",type:"text"},
+  {key:"rangeEnd",label:"Range end",type:"text"},
+  {key:"name",label:"Name",type:"text"},
+  {key:"include",label:"Include in calc (Breaks / Overtime / Extended hours)",type:"text"}
+];
+var LIMIT_COLS=[
+  {key:"name",label:"Limit name",type:"text"},
+  {key:"cap",label:"Cap (h)",type:"text"},
+  {key:"period",label:"Period",type:"select",options:["Weekly","Monthly","Yearly","Custom"]}
+];
+
+/* ---------- schema: Pay Policy mode ---------- */
+var POLICY_TABS=[
+  {id:"policy",label:"Policy",sections:[
+    {title:"Identity",fields:[
+      {id:"policyName",label:"Policy name",type:"text",tags:["C"],help:"Identity in the Pay Policies list."},
+      {id:"startDate",label:"Start date",type:"date",tags:["C"],help:"The policy's start date; also anchors the banked-hours cycle when the bank is on."},
+      {id:"status",label:"Status",type:"select",options:["Active","Inactive"],tags:["C"],help:"Inactive policies are retained for reference, not assignable."},
+      {id:"isDefault",label:"Default policy",type:"toggle",tags:["C"],help:"Auto-assigned to every new employee; assignment locks the policy for editing (reassign, don't edit)."},
+      {id:"externalId",label:"External ID (for integration)",type:"toggle",tags:["C"],help:"Exposes an external identifier for integrations; no calc effect."}
+    ]},
+    {title:"Scope (entity)",desc:"The compensation arrangement the policy is built for — not a visible control today; seeds statutory defaults.",fields:[
+      {id:"scopeCountry",label:"Country",type:"text",tags:["T"],help:"e.g. US (FLSA), Germany."},
+      {id:"scopeState",label:"State / province",type:"text",tags:["T"]},
+      {id:"scopeCBA",label:"CBA / union",type:"text",tags:["T"]},
+      {id:"scopeCompany",label:"Company",type:"text",tags:["T"]}
+    ]}
+  ]},
+
+  {id:"overtime",label:"Paid Overtime",sections:[
+    {title:"Banked Hours activation",fields:[
+      {id:"activateBank",label:"Activate Banked Hours",type:"toggle",tags:["C"],help:"Off → overtime pays as Extra Hours (cash). On → overtime can accrue as Banked Hours per each rate's split; opens the cycle block below."}
+    ]},
+    {title:"Banked Hours cycle",showIf:{field:"activateBank"},desc:"Full cyclical logic in flow/cyclical-banked-hours.md.",fields:[
+      {id:"bankFirstDue",label:"Choose the first due date",type:"toggle",tags:["C"],help:"Aligns the cycle to a payroll period rather than the calendar month."},
+      {id:"bankFirstDueDate",label:"… first due date",type:"date",tags:["C"],showIf:{field:"bankFirstDue"}},
+      {id:"bankDuration",label:"Duration",type:"select",options:["1 Month","2 Months","3 Months","4 Months","5 Months","6 Months","9 Months","12 Months","18 Months"],tags:["C"],help:"1–18 months. Next End Date = Start date + Duration (computed in-product)."},
+      {id:"bankResetCyclically",label:"Reset hours bank cyclically",type:"toggle",tags:["C"],help:"Carry balances across cycles within a retention window vs a single reset."},
+      {id:"bankCyclesBeforeReset",label:"Cycles before reset (N)",type:"number",unit:"cycles",tags:["C"],showIf:{field:"bankResetCyclically"},help:"Past cycles retained before the oldest expires. UI counts one extra — enter N−1 for N cycles."},
+      {id:"bankHide",label:"Hide the Banked Hours summary from the employee's app",type:"toggle",tags:["C"]},
+      {id:"bankMissingDays",label:"Missing Days",type:"select",options:["Reduce hours from the bank and set as a missing day","Set as a missing day without reducing the bank","Reduce hours from the bank only"],tags:["C"],help:"What a missing day does to the balance — always docks and/or marks."},
+      {id:"bankPositive",label:"Banked Hours payment — Positive bank",type:"select",options:["Do nothing - Keep as expired","Convert to Extra Hours","Convert original hours to Extra Hours"],tags:["C"],help:"Disposition of a positive balance at cycle close."},
+      {id:"bankNegative",label:"Banked Hours payment — Negative bank",type:"select",options:["Do nothing - Keep as expired","Convert to missing hours"],tags:["C"],help:"Disposition of a negative balance at cycle close."},
+      {id:"bankCustomSubtraction",label:"Custom phase deduction order",type:"toggle",tags:["C"],showIf:{field:"bankResetCyclically"},help:"Within a cycle, deduct from a configured premium-type order (e.g. highest first) rather than the default. (customPhasesSubtractionOrder)"}
+    ]},
+    {title:"Extra hours settings (overtime onset)",desc:"OT is the surplus of actual worked time above the planned shift (planned hours come from the schedule). There is no regular-hours-target control in the pay policy.",fields:[
+      {id:"otOnlyEarlyLate",label:"Consider only early arrivals and late leaves as overtime (regardless of total worked hours)",type:"toggle",tags:["C"],help:"Checked → OT is only the spill outside planned boundaries; a boundary shortfall becomes a debit (not netted). Unchecked → total surplus floats to the tail."},
+      {id:"includeBreaks",label:"Include breaks in the calculation",type:"toggle",tags:["C","Q"],help:"Modifies the rule above by including breaks. No calc-flow counterpart yet (flow-finding #25)."},
+      {id:"otNonPlannedAfter",label:"On non-planned days, start calculating overtime after X hours",type:"toggle",tags:["C"]},
+      {id:"otNonPlannedX",label:"… X hours",type:"number",unit:"h",tags:["C"],showIf:{field:"otNonPlannedAfter"}},
+      {id:"splitDaysBy",label:"Split days by",type:"select",options:["Split by calendar days","Split by shifts"],tags:["C"],help:"Only matters when OT crosses midnight. Calendar → after-midnight portion takes the next day's rate; shifts → whole shift takes the start-date rate."}
+    ]},
+    {title:"Rates",desc:"A day/night split in the product = two rows (Day + Night) for the same Days. A chained limit = another row for the same Days with a higher 'up-to' value (rate applies up to N hours, then the next row's rate takes over).",fields:[
+      {id:"splitRatesBy",label:"Split rates by",type:"select",options:["Specific days","Planned & Non-planned days"],tags:["C"],help:"Drives the Days-column options in the table below."},
+      {id:"calcRatesBy",label:"Calculate compensation rates by",type:"select",options:["Percentage","Multipliers"],tags:["C"],help:"Crediting/labeling axis (2h@1.5× = 3h; 2h@50% = 2h labeled 150%). NOT the premium-composition mode."},
+      {id:"otRates",label:"Overtime pay rates",type:"table",columns:RATE_COLS,sheet:"OT Rates",tags:["C"],help:"Per row: Days · Phase (Combined/Day/Night) · Rate (%/×) · BH split % (bank on) · payroll-event Name · Up-to limit (h) for rate-chaining."}
+    ]},
+    {title:"Limits — overall period cap",desc:"An overall cap on total overtime / banked hours over a period, independent of the per-row 'up-to' chaining.",fields:[
+      {id:"bankCustomRate",label:"Create custom hours bank rate for limit rules",type:"toggle",tags:["C"],showIf:{field:"activateBank"},help:"Attach a custom hours-bank rate to the limit rules."},
+      {id:"otLimits",label:"Extra hours / Hours bank limits",type:"table",columns:LIMIT_COLS,sheet:"Limits",tags:["C"],help:"Bank off → 'Extra hours limits'; bank on → 'Hours bank limits'."}
+    ]},
+    {title:"Notifications and alerts",desc:"Supervisor alerts only — no effect on calculated hours.",fields:[
+      {id:"alertBankLimit",label:"Banked Hours limit alert",type:"text",placeholder:"HH:MM",tags:["C"]},
+      {id:"alertBankPeriod",label:"… period",type:"select",options:["Daily","Weekly","Monthly"],tags:["C"]},
+      {id:"alertEhLimit",label:"Extra Hours defined limit",type:"text",placeholder:"HH:MM",tags:["C"]},
+      {id:"alertEhPeriod",label:"… period",type:"select",options:["Daily","Weekly","Monthly"],tags:["C"],help:"Supervisors are notified when an employee exceeds the set hours."},
+      {id:"overtimeStartAlert",label:"Overtime start alert",type:"toggle",tags:["C"]}
+    ]},
+    {title:"Cross-shift interval",desc:"Minimum rest between shifts (data-layer rules.crossShiftsInterval; UI tab not confirmed from the 2026 screens). Below the interval, the next shift may be reshaped/flagged — finding #17.",fields:[
+      {id:"crossShiftInterval",label:"Inter-shift interval",type:"number",unit:"h",tags:["C","Q"],help:"Default 11h (stored as 660 minutes)."}
+    ]}
+  ]},
+
+  {id:"distribution",label:"Hours Distribution",sections:[
+    {title:"Night Shift",fields:[
+      {id:"nightActivate",label:"Activate Night shift",type:"toggle",tags:["C"],help:"Default is no split unless configured."},
+      {id:"nightStart",label:"Start time",type:"time",tags:["C"],showIf:{field:"nightActivate"}},
+      {id:"nightEnd",label:"End Time",type:"time",tags:["C"],showIf:{field:"nightActivate"}},
+      {id:"nightPct",label:"Percentage %",type:"number",unit:"%",tags:["C"],showIf:{field:"nightActivate"},help:"Night premium on in-window worked hours, independent of surplus."},
+      {id:"nightEntire",label:"Schedules started inside the window are entirely night shift",type:"toggle",tags:["C"],showIf:{field:"nightActivate"},help:"A shift that starts in the window is paid entirely as night (nightShiftExtendToFullRange)."}
+    ]},
+    {title:"Hours distribution rules",desc:"Labeling / monitoring — classifies worked time into reporting buckets; not an hours driver.",fields:[
+      {id:"distRules",label:"Rules",type:"table",columns:DIST_COLS,sheet:"Hours Distribution",tags:["C"]}
+    ]},
+    {title:"Brazil / CLT (unconfirmed in UI)",fields:[
+      {id:"nightAddBreaks",label:"Add non-working breaks to night duration",type:"toggle",tags:["BR"]},
+      {id:"nightReduced",label:"Night reduced hours (duration compression)",type:"toggle",tags:["BR"],help:"A night hour pays 60′ though ~52½′ elapse (hora noturna reduzida)."},
+      {id:"dsrShowReports",label:"Show DSR days in reports",type:"toggle",tags:["BR"]},
+      {id:"dsrCountHours",label:"Count DSR days toward period hours",type:"toggle",tags:["BR"]},
+      {id:"dsrDiscountActive",label:"Discount DSR for missing minutes",type:"toggle",tags:["BR"],help:"Dock DSR when worked minutes fall short (limit default 00:30). Confirmed in the API payload."},
+      {id:"dsrDiscountLimit",label:"… limit",type:"text",placeholder:"HH:MM",tags:["BR"],showIf:{field:"dsrDiscountActive"}}
+    ]}
+  ]},
+
+  {id:"tolerance",label:"Tolerance",sections:[
+    {title:"Tolerance",desc:"Minor deviations forgiven before becoming missing/OT. If a deviation exceeds the limit, the entire deviation counts (all-or-nothing). Distinct from validity (schedule-level).",fields:[
+      {id:"tolActive",label:"Tolerance active",type:"toggle",tags:["C"],help:"The tab toggles 'Deactivate Tolerance'; on here = tolerance applied."},
+      {id:"tolLimit",label:"Tolerance limit",type:"text",placeholder:"e.g. 10m",tags:["C"],showIf:{field:"tolActive"}},
+      {id:"tolPeriod",label:"Period",type:"select",options:["Per Punch","Per Day"],tags:["C"],showIf:{field:"tolActive"},help:"Per Day sums deviations with end-of-day netting (a late arrival can offset a late departure)."},
+      {id:"tolBreaks",label:"Consider the Break registers too",type:"toggle",tags:["C"],showIf:{field:"tolActive"}},
+      {id:"tolEarlyLate",label:"Consider early Entry and late Exit too",type:"toggle",tags:["C"],showIf:{field:"tolActive"}}
+    ]}
+  ]},
+
+  {id:"oncall",label:"On Call",sections:[
+    {title:"On-Call Working Time",fields:[
+      {id:"onCallComp",label:"Compensation",type:"select",options:["No compensation","Follow pay policies"],tags:["C"],help:"Whether on-call time is compensated. Availability and activation are paid separately."}
+    ]}
+  ]},
+
+  {id:"special",label:"Special Rules",sections:[
+    {title:"Special Rules",fields:[
+      {id:"bonusHours",label:"Bonus hours",type:"toggle",tags:["C","Q"],help:"Grant a set number of hours per working day; the daily bonus amount is set on the employee profile. No calc-flow mechanic / dedicated event yet (flow-finding #24)."},
+      {id:"bonusEventName",label:"Payroll event name",type:"text",tags:["C"],showIf:{field:"bonusHours"}}
+    ]}
+  ]},
+
+  {id:"employees",label:"Employees",sections:[
+    {title:"Assignment",fields:[
+      {id:"assignedEmployees",label:"Assigned employees / groups",type:"textarea",tags:["C"],help:"Which employees fall under this policy — the binding. Default policy auto-assigns; assignment locks the policy."}
+    ]}
+  ]},
+
+  {id:"target",label:"Target-design",sections:[
+    {title:"Target-design configurations",desc:"Belong in the pay policy in the worldwide flow but are NOT in today's UI (compensation routes through the policy — finding F-B). Shown here so the full picture is unified; all tagged Target.",fields:[
+      {id:"tRegularHours",label:"Regular-hours target (OT threshold)",type:"number",unit:"h/day",tags:["T"],help:"Explicit daily OT threshold (today onset = surplus above planned)."},
+      {id:"tStatDaily",label:"Statutory daily OT threshold",type:"number",unit:"h",tags:["T"]},
+      {id:"tStatWeekly",label:"Statutory weekly OT threshold",type:"number",unit:"h",tags:["T"]},
+      {id:"tDoubleTime",label:"Daily double-time threshold",type:"number",unit:"h",tags:["T"]},
+      {id:"tComposition",label:"Premium composition mode",type:"select",options:["Additive","Multiplicative","Winner-take-all"],tags:["T"],help:"How stacked premiums (night / Sunday / holiday) combine."},
+      {id:"tAdditiveMult",label:"Rate application",type:"select",options:["Additive","Multiplicative"],tags:["T"],help:"First-class axis, distinct from %/× and from composition mode."},
+      {id:"tRateBase",label:"Rate-base composition (include_in_regular_rate)",type:"toggle",tags:["T"],help:"Which habitual additions fold into the OT base rate."},
+      {id:"tSleep",label:"Two working-hour types / sleep time",type:"toggle",tags:["T"],help:"Paid-but-not-OT-counting hours."},
+      {id:"tSpread",label:"Spread-of-hours premium",type:"toggle",tags:["T"],help:"Premium when the actual spread exceeds a threshold (e.g. NY > 10h)."},
+      {id:"tConsecutive",label:"Consecutive-working-days rule",type:"toggle",tags:["T"],help:"Earned day-off / manager alert / all-OT after N days."},
+      {id:"tMinGuaranteed",label:"Minimum guaranteed hours",type:"number",unit:"h",tags:["T"],help:"Reporting / call-in pay floor."},
+      {id:"tSplitShift",label:"Split-shift premium",type:"toggle",tags:["T"]},
+      {id:"tRestMin",label:"Minimum inter-shift rest",type:"text",placeholder:"HH:MM",tags:["T"],help:"e.g. EU/Swiss 11h."},
+      {id:"tHolidayModel",label:"Holiday-comp model + reference-period averaging",type:"toggle",tags:["T"]},
+      {id:"tMealBreak",label:"Meal-break obligation premium",type:"toggle",tags:["T"]},
+      {id:"tAveraging",label:"OT averaging / reference period / redistribution",type:"toggle",tags:["T"]},
+      {id:"tBankCash",label:"Bank cycle expiry → cash OT payout at cycle premium",type:"toggle",tags:["T"]}
+    ]}
+  ]}
+];
+
+/* ---------- schema: Exception mode ---------- */
+var EXCEPTION_TABS=[
+  {id:"exception",label:"Exception",sections:[
+    {title:"Exception details",fields:[
+      {type:"note",text:"<b>Exceptions pay extra hours regardless of the assigned pay policy.</b> A date-range + employee override; no Banked-Hours / Tolerance / On-Call / Special-Rules tabs. (Distinct from a <i>schedule exception</i>, which replaces the schedule for a date.)"},
+      {id:"excName",label:"Name",type:"text",tags:["C"]},
+      {id:"excDateStart",label:"Date — from",type:"date",tags:["C"]},
+      {id:"excDateEnd",label:"Date — to",type:"date",tags:["C"]}
+    ]},
+    {title:"Rates",desc:"Same shape as the pay-policy rates; Days include 'DSR & Rest days'. Extra hours only.",fields:[
+      {id:"excRates",label:"Exception rates",type:"table",columns:EXC_RATE_COLS,sheet:"Exception Rates",tags:["C"]}
+    ]},
+    {title:"Employees",fields:[
+      {id:"excEmployees",label:"Assigned employees / groups",type:"textarea",tags:["C"],help:"Which employees the exception applies to."}
+    ]}
+  ]}
+];
+
+var MODES={policy:{label:"Pay Policy",tabs:POLICY_TABS},exception:{label:"Exception",tabs:EXCEPTION_TABS}};
+
+/* ---------- table defaults ---------- */
+var TABLE_DEFAULTS={
+  otRates:[
+    {days:"Monday - Saturday",phase:"Combined",rate:"50",unit:"%",bhSplit:"",name:"Extra Hours Monday - Saturday 50%",limit:""},
+    {days:"Sunday & Holidays",phase:"Combined",rate:"100",unit:"%",bhSplit:"",name:"Extra Hours Sunday, Holiday 100%",limit:""}
+  ],
+  otLimits:[],
+  distRules:[
+    {period:"Monday - Friday",hoursType:"Planned hours",rangeStart:"08:00",rangeEnd:"18:00",name:"",include:"Breaks; Overtime"},
+    {period:"All days",hoursType:"Non-planned hours",rangeStart:"",rangeEnd:"",name:"",include:""}
+  ],
+  excRates:[
+    {days:"",phase:"Day",rate:"50",unit:"%",name:"Extra Hours 50% (day)",limit:""},
+    {days:"",phase:"Night",rate:"50",unit:"%",name:"Extra Hours 50% (night)",limit:""},
+    {days:"DSR & Rest days",phase:"Combined",rate:"50",unit:"%",name:"Extra Hours DSR & Rest days 50%",limit:""}
+  ]
+};
+
+/* ---------- state ---------- */
+var state={};
+var fieldMap={};
+var currentMode="policy";
+var currentTab="policy";
+
+(function initState(){
+  Object.keys(MODES).forEach(function(m){ MODES[m].tabs.forEach(function(t){ t.sections.forEach(function(s){ s.fields.forEach(function(f){
+    if(f.type==="note")return;
+    fieldMap[f.id]=f;
+    if(f.type==="table"){ state[f.id]=JSON.parse(JSON.stringify(TABLE_DEFAULTS[f.id]||[])); }
+    else if(f.type==="toggle"){ state[f.id]=false; }
+    else if(f.type==="multiselect"){ state[f.id]=[]; }
+    else{ state[f.id]= f.id==="status"?"Active":""; }
+  });});});});
+  state.tolActive=true;
+})();
+
+/* ---------- escaping ---------- */
+function escHtml(s){return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
+function escAttr(s){return escHtml(s).replace(/"/g,"&quot;");}
+
+/* ---------- rendering ---------- */
+function pillsHtml(tags){ if(!tags||!tags.length)return ""; return '<span class="pills">'+tags.map(function(k){var t=TAGS[k];return t?'<span class="pill '+t.cls+'">'+t.label+'</span>':"";}).join("")+"</span>"; }
+
+function controlHtml(f){
+  var v=state[f.id];
+  switch(f.type){
+    case "text": return '<input type="text" data-field="'+f.id+'" value="'+escAttr(v)+'"'+(f.placeholder?' placeholder="'+escAttr(f.placeholder)+'"':"")+'>';
+    case "date": return '<input type="date" data-field="'+f.id+'" value="'+escAttr(v)+'">';
+    case "time": return '<input type="time" data-field="'+f.id+'" value="'+escAttr(v)+'">';
+    case "textarea": return '<textarea data-field="'+f.id+'" rows="3">'+escHtml(v)+'</textarea>';
+    case "number": return '<div class="num"><input type="number" step="any" data-field="'+f.id+'" value="'+escAttr(v)+'">'+(f.unit?'<span class="unit">'+escHtml(f.unit)+'</span>':"")+'</div>';
+    case "select": return '<select data-field="'+f.id+'"><option value="">— select —</option>'+f.options.map(function(o){return '<option'+(o===v?" selected":"")+'>'+escHtml(o)+'</option>';}).join("")+'</select>';
+    case "toggle": return '<button type="button" class="switch" role="switch" aria-checked="'+(v?"true":"false")+'" data-toggle="'+f.id+'" aria-label="'+escAttr(f.label)+'"></button>';
+    case "multiselect": return '<div class="multi">'+f.options.map(function(o){return '<label class="chk"><input type="checkbox" data-multi="'+f.id+'" value="'+escAttr(o)+'"'+((v||[]).indexOf(o)>=0?" checked":"")+'>'+escHtml(o)+'</label>';}).join("")+'</div>';
+  }
+  return "";
+}
+
+function colOptions(c){ return c.optionsKey ? OPTION_FNS[c.optionsKey]() : (c.options||[]); }
+
+function tableInner(f){
+  var head=f.columns.map(function(c){return "<th>"+escHtml(c.label)+"</th>";}).join("")+"<th></th>";
+  var body=state[f.id].map(function(r,ri){
+    var tds=f.columns.map(function(c){
+      var val=r[c.key]==null?"":r[c.key];
+      if(c.type==="select"){ return '<td><select data-tbl="'+f.id+'" data-row="'+ri+'" data-col="'+c.key+'"><option value="">—</option>'+colOptions(c).map(function(o){return '<option'+(o===val?" selected":"")+'>'+escHtml(o)+'</option>';}).join("")+'</select></td>'; }
+      return '<td><input type="text" data-tbl="'+f.id+'" data-row="'+ri+'" data-col="'+c.key+'" value="'+escAttr(val)+'"></td>';
+    }).join("");
+    return "<tr>"+tds+'<td><button type="button" class="btn small ghost" data-del-row="'+f.id+'" data-row="'+ri+'">Remove</button></td></tr>';
+  }).join("");
+  return '<div class="tbl-wrap"><table class="grid"><thead><tr>'+head+'</tr></thead><tbody>'+body+'</tbody></table></div>'+
+         '<button type="button" class="btn small" data-add-row="'+f.id+'" style="margin-top:10px;">+ Add row</button>';
+}
+
+function fieldHtml(f){
+  if(f.type==="note") return '<div class="note'+(f.warn?" warn":"")+'">'+f.text+'</div>';
+  if(f.type==="table") return '<div class="block" id="fld-'+f.id+'"><div class="lbl-block"><div class="lbl">'+escHtml(f.label)+pillsHtml(f.tags)+'</div>'+(f.help?'<div class="help">'+escHtml(f.help)+'</div>':"")+'</div><div id="tblc-'+f.id+'">'+tableInner(f)+'</div></div>';
+  return '<div class="field" id="fld-'+f.id+'"><div class="lbl-block"><div class="lbl">'+escHtml(f.label)+pillsHtml(f.tags)+'</div>'+(f.help?'<div class="help">'+escHtml(f.help)+'</div>':"")+'</div><div class="control">'+controlHtml(f)+'</div></div>';
+}
+
+function renderTab(id){
+  currentTab=id;
+  var tab=findTab(id),html="";
+  tab.sections.forEach(function(s,si){
+    html+='<section class="card" id="sec-'+id+"-"+si+'"><div class="card-head"><h2>'+escHtml(s.title)+'</h2>'+(s.desc?'<p>'+escHtml(s.desc)+'</p>':"")+'</div><div class="items">';
+    s.fields.forEach(function(f){ html+=fieldHtml(f); });
+    html+='</div></section>';
+  });
+  document.getElementById("main").innerHTML=html;
+  applyVis(); highlightNav(); updateProgress();
+}
+
+function highlightNav(){
+  [].forEach.call(document.querySelectorAll("#nav button"),function(b){ b.classList.toggle("active",b.getAttribute("data-tab")===currentTab); });
+}
+
+/* ---------- conditional visibility ---------- */
+function condPass(c){
+  var v=state[c.field];
+  if("eq" in c) return v===c.eq;
+  if("neq" in c) return v!==c.neq;
+  return !!v && v!=="";
+}
+function showIfPass(si){ if(!si)return true; var arr=Array.isArray(si)?si:[si]; return arr.every(condPass); }
+function applyVis(){
+  var tab=findTab(currentTab);
+  tab.sections.forEach(function(s,si){
+    var secEl=document.getElementById("sec-"+currentTab+"-"+si);
+    if(secEl) secEl.style.display=showIfPass(s.showIf)?"":"none";
+    s.fields.forEach(function(f){
+      if(f.type==="note")return;
+      var el=document.getElementById("fld-"+f.id);
+      if(el) el.style.display=showIfPass(f.showIf)?"":"none";
+    });
+  });
+}
+
+/* ---------- progress ---------- */
+var VALUE_TYPES={text:1,textarea:1,number:1,date:1,time:1,select:1,multiselect:1};
+function updateProgress(){
+  var total=0,filled=0,tab=findTab(currentTab);
+  tab.sections.forEach(function(s){
+    if(!showIfPass(s.showIf))return;
+    s.fields.forEach(function(f){
+      if(!VALUE_TYPES[f.type])return;
+      if(!showIfPass(f.showIf))return;
+      total++;
+      var v=state[f.id];
+      if(f.type==="multiselect"){ if(v&&v.length)filled++; }
+      else if(v!==""&&v!=null)filled++;
+    });
+  });
+  document.getElementById("progress").innerHTML="<b>"+filled+"</b> / "+total+" set";
+}
+
+/* ---------- helpers ---------- */
+function findTab(id){ var tabs=MODES[currentMode].tabs; for(var i=0;i<tabs.length;i++)if(tabs[i].id===id)return tabs[i]; }
+function blankRow(f){ var r={}; f.columns.forEach(function(c){r[c.key]="";}); return r; }
+function rerenderTable(f){ var el=document.getElementById("tblc-"+f.id); if(el) el.innerHTML=tableInner(f); }
+function countSettings(t){ var n=0; t.sections.forEach(function(s){s.fields.forEach(function(f){if(f.type!=="note")n++;});}); return n; }
+function statusText(tags){ return (tags||[]).map(function(k){return TAGS[k]?TAGS[k].label:k;}).join("; "); }
+function slug(s){ return String(s||"").toLowerCase().trim().replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,""); }
+
+/* ---------- build export sheets (active mode) ---------- */
+function buildSheets(){
+  var tabs=MODES[currentMode].tabs;
+  var main=[];
+  main.push([MODES[currentMode].label+" Configuration"]);
+  main.push(["Name",state.policyName||state.excName||""]);
+  main.push(["Exported",new Date().toLocaleString()]);
+  main.push([]);
+  main.push(["Tab","Section","Setting","Value","Status"]);
+  tabs.forEach(function(t){t.sections.forEach(function(s){
+    if(!showIfPass(s.showIf))return;
+    s.fields.forEach(function(f){
+      if(f.type==="note"||f.type==="table")return;
+      if(!showIfPass(f.showIf))return;
+      var v=state[f.id];
+      if(f.type==="toggle"){ v=v?"Yes":"No"; }
+      else if(f.type==="multiselect"){ v=(v||[]).join("; "); if(!v)return; }
+      else { v=(v==null?"":String(v)); if(v==="")return; if(f.unit)v=v+" "+f.unit; }
+      main.push([t.label,s.title,f.label,v,statusText(f.tags)]);
+    });
+  });});
+  var sheets=[{name:MODES[currentMode].label,aoa:main}];
+  tabs.forEach(function(t){t.sections.forEach(function(s){s.fields.forEach(function(f){
+    if(f.type!=="table")return;
+    var rows=state[f.id].filter(function(r){return f.columns.some(function(c){return r[c.key]&&String(r[c.key]).trim()!=="";});});
+    if(!rows.length)return;
+    var aoa=[f.columns.map(function(c){return c.label;})];
+    rows.forEach(function(r){ aoa.push(f.columns.map(function(c){return r[c.key]||"";})); });
+    sheets.push({name:f.sheet||f.label,aoa:aoa});
+  });});});
+  return sheets;
+}
+
+/* ---------- xlsx writer (zip + SpreadsheetML, no libraries) ---------- */
+var CRC=(function(){var t=[];for(var n=0;n<256;n++){var c=n;for(var k=0;k<8;k++)c=(c&1)?(0xEDB88320^(c>>>1)):(c>>>1);t[n]=c>>>0;}return t;})();
+function crc32(b){var crc=0xFFFFFFFF;for(var i=0;i<b.length;i++)crc=(crc>>>8)^CRC[(crc^b[i])&0xFF];return (crc^0xFFFFFFFF)>>>0;}
+function u16(n){return [n&0xFF,(n>>>8)&0xFF];}
+function u32(n){return [n&0xFF,(n>>>8)&0xFF,(n>>>16)&0xFF,(n>>>24)&0xFF];}
+function zip(files){
+  var chunks=[],central=[],offset=0;
+  files.forEach(function(f){
+    var name=f.name,data=f.data,crc=crc32(data);
+    var local=[].concat(u32(0x04034b50),u16(20),u16(0),u16(0),u16(0),u16(0),u32(crc),u32(data.length),u32(data.length),u16(name.length),u16(0));
+    var lh=new Uint8Array(local);
+    chunks.push(lh,name,data);
+    var cd=[].concat(u32(0x02014b50),u16(20),u16(20),u16(0),u16(0),u16(0),u16(0),u32(crc),u32(data.length),u32(data.length),u16(name.length),u16(0),u16(0),u16(0),u16(0),u32(0),u32(offset));
+    central.push({h:new Uint8Array(cd),n:name});
+    offset+=lh.length+name.length+data.length;
+  });
+  var cdStart=offset,cdSize=0;
+  central.forEach(function(c){ chunks.push(c.h,c.n); cdSize+=c.h.length+c.n.length; });
+  chunks.push(new Uint8Array([].concat(u32(0x06054b50),u16(0),u16(0),u16(central.length),u16(central.length),u32(cdSize),u32(cdStart),u16(0))));
+  var total=0;chunks.forEach(function(c){total+=c.length;});
+  var out=new Uint8Array(total),p=0;
+  chunks.forEach(function(c){out.set(c,p);p+=c.length;});
+  return out;
+}
+function colLetter(i){var s="";i++;while(i>0){var m=(i-1)%26;s=String.fromCharCode(65+m)+s;i=Math.floor((i-1)/26);}return s;}
+function sheetXml(aoa){
+  var rows=aoa.map(function(row,ri){
+    var cells=row.map(function(val,ci){var v=(val==null)?"":String(val);return '<c r="'+colLetter(ci)+(ri+1)+'" t="inlineStr"><is><t xml:space="preserve">'+escHtml(v)+'</t></is></c>';}).join("");
+    return '<row r="'+(ri+1)+'">'+cells+'</row>';
+  }).join("");
+  return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>'+rows+'</sheetData></worksheet>';
+}
+function sanitizeSheet(n){return String(n).replace(/[\[\]:*?\/\\]/g," ").replace(/"/g,"'").slice(0,31)||"Sheet";}
+function makeXlsx(sheets){
+  var enc=new TextEncoder(),files=[];
+  var ct=['<?xml version="1.0" encoding="UTF-8" standalone="yes"?>','<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">','<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>','<Default Extension="xml" ContentType="application/xml"/>','<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'];
+  sheets.forEach(function(s,i){ct.push('<Override PartName="/xl/worksheets/sheet'+(i+1)+'.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>');});
+  ct.push("</Types>");
+  files.push({name:enc.encode("[Content_Types].xml"),data:enc.encode(ct.join(""))});
+  files.push({name:enc.encode("_rels/.rels"),data:enc.encode('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>')});
+  var sx="",rx="";
+  sheets.forEach(function(s,i){ sx+='<sheet name="'+escAttr(sanitizeSheet(s.name))+'" sheetId="'+(i+1)+'" r:id="rId'+(i+1)+'"/>'; rx+='<Relationship Id="rId'+(i+1)+'" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet'+(i+1)+'.xml"/>'; });
+  files.push({name:enc.encode("xl/workbook.xml"),data:enc.encode('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>'+sx+'</sheets></workbook>')});
+  files.push({name:enc.encode("xl/_rels/workbook.xml.rels"),data:enc.encode('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'+rx+'</Relationships>')});
+  sheets.forEach(function(s,i){ files.push({name:enc.encode("xl/worksheets/sheet"+(i+1)+".xml"),data:enc.encode(sheetXml(s.aoa))}); });
+  return zip(files);
+}
+
+/* ---------- export → Google Sheets ---------- */
+var SHEETS_URL="https://sheets.new";
+function buildTsv(){
+  var sheets=buildSheets(),txt="";
+  sheets.forEach(function(s,i){
+    if(i)txt+="\n\n=== "+s.name+" ===\n";
+    txt+=s.aoa.map(function(r){return r.map(function(c){return String(c==null?"":c).replace(/\t/g," ").replace(/\n/g," ");}).join("\t");}).join("\n");
+  });
+  return txt;
+}
+function writeClipboard(txt,done){
+  done=done||function(){};
+  if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(txt).then(done,function(){fallbackCopy(txt,done);}); }
+  else fallbackCopy(txt,done);
+}
+// "Export" now sends the config to a new Google Sheet. A self-contained prototype can't
+// mint a pre-filled Sheet via the API, so: copy the config, open a blank Sheet in a new
+// tab, and surface a copyable link. The user pastes the copied data once (⌘/Ctrl+V).
+function openInSheets(){
+  writeClipboard(buildTsv());
+  try{ window.open(SHEETS_URL,"_blank","noopener"); }catch(e){}
+  var a=document.getElementById("dl-link");
+  a.href=SHEETS_URL; a.textContent=SHEETS_URL; a.setAttribute("target","_blank"); a.setAttribute("rel","noopener"); a.removeAttribute("download");
+  document.getElementById("dl").style.display="flex";
+  toast("Config copied — opening a new Google Sheet. Paste with ⌘/Ctrl+V.");
+}
+function copyTsv(){
+  writeClipboard(buildTsv(),function(){toast("Copied — paste into Google Sheets (⌘/Ctrl+V).");});
+}
+function fallbackCopy(txt,done){
+  var ta=document.createElement("textarea"); ta.value=txt; ta.style.position="fixed"; ta.style.opacity="0"; ta.style.top="0";
+  document.body.appendChild(ta); ta.focus(); ta.select();
+  try{ document.execCommand("copy"); (done||function(){})(); }catch(e){ toast("Couldn’t copy automatically — select and copy the values manually."); }
+  ta.remove();
+}
+
+/* ---------- toast ---------- */
+var toastTimer;
+function toast(m){ var el=document.getElementById("toast"); el.textContent=m; el.classList.add("show"); clearTimeout(toastTimer); toastTimer=setTimeout(function(){el.classList.remove("show");},3600); }
+
+/* ---------- events ---------- */
+var main=document.getElementById("main");
+main.addEventListener("input",function(e){
+  var el=e.target;
+  if(el.dataset.field){ state[el.dataset.field]=el.value; updateProgress(); }
+  else if(el.dataset.tbl){ state[el.dataset.tbl][+el.dataset.row][el.dataset.col]=el.value; }
+});
+main.addEventListener("change",function(e){
+  var el=e.target;
+  if(el.dataset.field&&el.tagName==="SELECT"){ state[el.dataset.field]=el.value; applyVis(); updateProgress();
+    if(el.dataset.field==="splitRatesBy"){ rerenderTable(fieldMap.otRates); } }
+  else if(el.dataset.multi){ var name=el.dataset.multi; var boxes=main.querySelectorAll('[data-multi="'+name+'"]'); state[name]=[].filter.call(boxes,function(b){return b.checked;}).map(function(b){return b.value;}); updateProgress(); }
+  else if(el.dataset.tbl&&el.tagName==="SELECT"){ state[el.dataset.tbl][+el.dataset.row][el.dataset.col]=el.value; }
+});
+main.addEventListener("click",function(e){
+  var el=e.target.closest("[data-toggle],[data-add-row],[data-del-row]");
+  if(!el)return;
+  if(el.dataset.toggle){ var id=el.dataset.toggle; state[id]=!state[id]; el.setAttribute("aria-checked",state[id]?"true":"false"); applyVis(); updateProgress(); }
+  else if(el.dataset.addRow){ var fa=fieldMap[el.dataset.addRow]; state[fa.id].push(blankRow(fa)); rerenderTable(fa); }
+  else if(el.dataset.delRow){ var fd=fieldMap[el.dataset.delRow]; state[fd.id].splice(+el.dataset.row,1); rerenderTable(fd); }
+});
+
+/* ---------- nav + mode ---------- */
+var nav=document.getElementById("nav");
+function renderNav(){
+  nav.innerHTML=MODES[currentMode].tabs.map(function(t){return '<button data-tab="'+t.id+'"'+(t.id===currentTab?' class="active"':"")+'>'+escHtml(t.label)+'<span class="count">'+countSettings(t)+'</span></button>';}).join("");
+}
+nav.addEventListener("click",function(e){ var b=e.target.closest("[data-tab]"); if(!b)return; renderTab(b.getAttribute("data-tab")); window.scrollTo({top:0,behavior:"smooth"}); });
+
+var seg=document.getElementById("seg");
+seg.addEventListener("click",function(e){ var b=e.target.closest("[data-mode]"); if(!b)return;
+  var m=b.getAttribute("data-mode"); if(m===currentMode)return;
+  currentMode=m;
+  [].forEach.call(seg.querySelectorAll("button"),function(x){x.classList.toggle("on",x.getAttribute("data-mode")===m);});
+  currentTab=MODES[m].tabs[0].id;
+  renderNav(); renderTab(currentTab);
+});
+
+/* ---------- theme ---------- */
+function effectiveTheme(){ var r=document.documentElement.getAttribute("data-theme"); if(r)return r; return matchMedia("(prefers-color-scheme:dark)").matches?"dark":"light"; }
+var themeBtn=document.getElementById("theme");
+function syncThemeLabel(){ themeBtn.textContent=effectiveTheme()==="dark"?"Light":"Dark"; }
+themeBtn.addEventListener("click",function(){ var next=effectiveTheme()==="dark"?"light":"dark"; document.documentElement.setAttribute("data-theme",next); syncThemeLabel(); });
+syncThemeLabel();
+
+document.getElementById("export").addEventListener("click",openInSheets);
+document.getElementById("copy").addEventListener("click",copyTsv);
+document.getElementById("dl-copy").addEventListener("click",function(e){ e.preventDefault(); writeClipboard(SHEETS_URL,function(){ toast("Link copied — paste it into Chrome to open the Sheet."); }); });
+
+/* boot */
+renderNav();
+renderTab("policy");
+})();
+</script>
