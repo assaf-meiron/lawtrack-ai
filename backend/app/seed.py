@@ -49,46 +49,36 @@ POLICIES = [
     {"id": "de-eh", "flag": "\U0001F1E9\U0001F1EA", "name": "Germany — Einzelhandel NRW", "sub": "Tarifvertrag"},
 ]
 
-# Representative current-state config per policy (the values a document is
-# compared against — the "current" side of each finding).
+# Representative current-state config per policy (the values a document is compared against — the
+# "current" side of each finding). Structured six-tab shape (app/pay_policy_schema.py): each field is
+# keyed by its 17-taxonomy capability code under the pay-policy tab a reviewer edits.
 POLICY_CONFIG = {
     "br-retail": {
-        "overtime_first_2h": "+50%",
-        "overtime_after": "+70%",
-        "night_premium": "+20%",
-        "hours_bank_window_months": 12,
-        "sunday_premium": "+50%",
+        "Paid Overtime": {"OT/d": "+50% first 2h / +70% after", "BH": "12-month compensation window", "Sun/Hol": "+50%"},
+        "Hours Distribution": {"Not": "+20%"},
+        "Tolerance": {"Tol": "5 min per punch · 10 min daily"},
     },
     "br-botic": {
-        "overtime_premium": "+60%",
-        "meal_break": "1h",
-        "function_accumulation_premium": "not modeled",
-        "weekly_hours": "44h",
+        "Paid Overtime": {"OT/d": "+60%", "Jorn": "44h weekly"},
+        "Special Rules": {"Intra": "1h meal break"},
     },
     "br-log": {
-        "overtime_first_2h": "+50%",
-        "night_premium": "+20%",
-        "waiting_time": "counted as journey",
-        "daily_rest": "11h",
+        "Paid Overtime": {"OT/d": "+50% first 2h"},
+        "Hours Distribution": {"Not": "+20%"},
+        "On Call": {"OnCall": "waiting time counted as journey"},
+        "Special Rules": {"Inter": "11h daily rest"},
     },
     "fr-syntec": {
-        "overtime_premium": "+25%",
-        "daily_rest": "11h",
-        "ot_contingent_hours": 130,
-        "forfait_jours": "hours-based only",
+        "Paid Overtime": {"OT/d": "+25% flat", "OT wk/mo": "130h annual contingent · no comp-rest"},
+        "Special Rules": {"Inter": "11h daily rest", "forfait_jours": "hours-based tracking only"},
     },
     "mx-retail": {
-        "weekly_hours": "48h",
-        "sunday_premium": "not set",
-        "overtime_premium": "+100%",
-        "weekly_cap_phase_in": "no",
+        "Paid Overtime": {"Jorn": "48h weekly", "OT/d": "+100%", "Sun/Hol": "not set", "OT wk/mo": "no weekly-cap phase-in"},
     },
     "de-eh": {
-        "overtime_surcharge": "+20%",
-        "night_surcharge": "+20% after 20:00",
-        "daily_rest": "11h",
-        "weekly_hours": "37.5h",
-        "vacation_days": 36,
+        "Paid Overtime": {"OT/d": "+20%", "Jorn": "37.5h weekly"},
+        "Hours Distribution": {"Not": "+20% after 20:00"},
+        "Special Rules": {"Inter": "11h daily rest", "Abono": "36 vacation days"},
     },
 }
 
@@ -371,7 +361,7 @@ DOCS = {
     "de-eh-2026": {
         "title": "Tarifvertrag Einzelhandel NRW", "subtitle": "Entgelttarifvertrag 2026",
         "family": "Tarifvertrag Einzelhandel NRW", "country": "Germany",
-        "kind": "CCT", "lang": "de",
+        "kind": "Tarifvertrag", "lang": "de",
         "source": "ver.di / HDE", "policyId": "de-eh",
         "pages": [
             [
@@ -508,7 +498,11 @@ _PREFIX_CODE = {"br": "BR", "fr": "FR", "mx": "MX", "de": "DE"}
 # most seeded policies are collective agreements; the Mexico baseline is a federal (country) layer
 _LAYER_TYPE = {"mx-retail": LayerType.country}
 _COUNTRY_CODE = {"Brazil": "BR", "France": "FR", "Mexico": "MX", "Germany": "DE"}
-_DOC_TYPE = {"CCT": DocType.cct, "Law": DocType.statute, "Amendment": DocType.reform}
+_DOC_TYPE = {
+    "CCT": DocType.cct, "ACT": DocType.act, "CBA": DocType.cba,
+    "CCN": DocType.ccn, "Tarifvertrag": DocType.tarifvertrag, "Award": DocType.award,
+    "Law": DocType.statute, "State Law": DocType.state_law, "Amendment": DocType.reform,
+}
 _STATUS = {
     "ready": DocStatus.analyzed,
     "reviewed": DocStatus.reviewed,
@@ -628,6 +622,37 @@ def _clause_family(mapping: str, title: str) -> str:
     return "overtime"
 
 
+def _capability_code(mapping: str, title: str) -> str:
+    """Best-effort map of a demo change to one of the 17 taxonomy codes (app/pay_policy_schema.py).
+    Demo data only — real runs get the code from the model."""
+    t = (mapping + " " + title).lower()
+    if _has(t, "hours-bank", "hours bank", "banco"):
+        return "BH"
+    if _has(t, "dsr", "sunday", "holiday", "domingo"):
+        return "Sun/Hol"
+    if _has(t, "night", "noturno"):
+        return "Not"
+    if _has(t, "tolerance", "punch"):
+        return "Tol"
+    if _has(t, "on-call", "on call", "standby", "waiting", "espera"):
+        return "OnCall"
+    if _has(t, "intrajornada", "meal", "intraday"):
+        return "Intra"
+    if _has(t, "interjornada", "daily rest", "repos", "rest"):
+        return "Inter"
+    if _has(t, "12x36"):
+        return "12x36"
+    if _has(t, "semana espanhola"):
+        return "Sem-esp"
+    if _has(t, "absence", "abono", "vacation"):
+        return "Abono"
+    if _has(t, "contingent", "weekly", "monthly", "40h", "banded"):
+        return "OT wk/mo"
+    if _has(t, "forfait", "journey", "jornada", "44h", "weekly hours", "standard"):
+        return "Jorn"
+    return "OT/d"
+
+
 def _confidence(n: int):
     if n >= 95:
         return Confidence.high, "explicit_clause"
@@ -643,17 +668,22 @@ def _finalize_seed_document(db, doc, pol) -> None:
     so the ground-truth store shows a real committed version out of the box."""
     if pol is None:
         return
-    cfg = dict(pol.config or {})
+    from . import pay_policy_schema
+    cfg = pay_policy_schema.normalize(pol.config)
     changes = 0
     for f in doc.findings:
         if f.classification == Classification.gap:
             db.add(UnsupportedCalculation(
-                policy_id=pol.id, document_id=doc.id, finding_id=f.id, capability=f.clause_family,
+                policy_id=pol.id, document_id=doc.id, finding_id=f.id,
+                capability=f.capability_code or f.clause_family,
                 title=f.title, description=f.rule_summary, source_quote=f.source_quote, page=f.page,
                 derived_from=doc.cba_name or doc.jurisdiction,
             ))
         else:
-            cfg[f.policy_field or f.clause_family] = f.proposed_value or f.current_value or ""
+            pay_policy_schema.set_field(
+                cfg, f.capability_code or f.clause_family,
+                f.proposed_value or f.current_value or "", taxonomy_tab=f.policy_tab,
+            )
             changes += 1
         f.committed_version = 1
     pol.config = cfg
@@ -727,6 +757,7 @@ def seed_if_empty(db, log) -> None:
             conf, basis = _confidence(ch["confidence"])
             clause_family = _clause_family(ch["mapping"], ch["title"])
             policy_tab = _policy_tab(ch["mapping"], ch["title"])
+            capability_code = _capability_code(ch["mapping"], ch["title"])
 
             finding = Finding(
                 document=doc,
@@ -738,6 +769,7 @@ def seed_if_empty(db, log) -> None:
                 rule_summary=ch["change"],
                 policy_tab=policy_tab,
                 policy_field=ch["mapping"],
+                capability_code=capability_code,
                 current_value=ch["current"],
                 proposed_value=ch["required"],
                 rationale=ch["action"],

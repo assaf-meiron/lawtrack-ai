@@ -28,7 +28,7 @@ STATUTE_NOTES = {
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="LawTrack Phase-1 digest loop (reference scaffold).")
-    ap.add_argument("pdf", help="Path to the CBA/CCT PDF.")
+    ap.add_argument("pdf", help="Path to the labor-rule PDF (statute, CCT/CBA/CCN/Tarifvertrag/Award, reform).")
     ap.add_argument("--policy", help="Path to the current pay policy JSON (the comparison baseline).")
     ap.add_argument("--jurisdiction", default="brazil", help="Statutory-floor jurisdiction key.")
     ap.add_argument("--out", help="Write the change cards to this JSON file.")

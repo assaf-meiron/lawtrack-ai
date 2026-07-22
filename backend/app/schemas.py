@@ -133,6 +133,7 @@ class FindingOut(ORMModel):
     id: uuid.UUID
     document_id: uuid.UUID
     clause_family: str
+    capability_code: Optional[str] = None
     clause_ref: Optional[str] = None
     title: Optional[str] = None
     source_quote: str

@@ -88,6 +88,7 @@ def analyze_document(db: Session, doc: Document) -> None:
         db.add(Finding(
             document_id=doc.id,
             clause_family=_val(m.clause_family),
+            capability_code=(_val(m.capability_code) if getattr(m, "capability_code", None) is not None else None),
             source_quote=m.source_quote,
             page=m.page,
             rule_summary=m.rule_summary,
