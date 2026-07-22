@@ -1,27 +1,22 @@
-"""Eval harness — score the pipeline against the 72-instrument golden set (stub).
+"""Eval harness — score pipeline predictions against the expert-labelled golden set.
 
-The Grupo Boticario run (`../../../context/worldwide-calculations/brazil-cct-support-matrix.md`)
-classified 72 real instruments across 17 capabilities by experts — a ready-made golden set
-(deep-dive #3 calls this a rare luxury). This module defines the scoring; generating the machine-
-readable golden file from the matrix is the one TODO.
+The golden set (`goldenset/golden.json`) lists instruments, each mapping a taxonomy
+capability code (taxonomy.py CAPABILITIES) to the expert classification. A small fixture
+ships in this repo; the full 72-instrument set is generated from
+`brazil-cct-support-matrix.md` (see `goldenset/README.md`).
 
-Golden format (one entry per instrument):
-    {
-      "instrument": "CCT 3 · SSA 2026-2027",
-      "pdf": "goldenset/cct_3.pdf",
-      "expected": {                      # per capability code (taxonomy.py CAPABILITIES)
-          "OT/d": "match", "BH": "match", "Sun/Hol": "match", "Not": "match", "BH->pay": "adjust"
-          # codes absent here == not invoked by this CCT
-      }
-    }
+Runnable without an API key:
+    python eval_harness.py                          # self-test on a hand example
+    python eval_harness.py --golden goldenset/golden.json          # validate + summarize the set
+    python eval_harness.py --golden goldenset/golden.json --predictions preds.json   # score predictions
 
-Metrics:
-  - extraction recall   : of capabilities the matrix says the CCT invokes, how many did we surface?
-  - mapping precision   : of findings we mapped, how many match the expected classification?
-  - per-capability confusion: where does the pipeline systematically mis-map?
+`preds.json` mirrors the golden format (instrument -> {capability_code: classification}).
 """
 from __future__ import annotations
 
+import argparse
+import json
+import sys
 from collections import Counter
 
 
@@ -45,14 +40,62 @@ def score_instrument(expected: dict[str, str], predicted: dict[str, str]) -> dic
 
 
 def load_golden(path: str) -> list[dict]:
-    raise NotImplementedError(
-        "TODO: generate the golden JSON from brazil-cct-support-matrix.md "
-        "(rows -> instruments, cells -> expected classification per capability code)."
-    )
+    """Load the golden set: a JSON list of {instrument, expected: {code: classification}}."""
+    with open(path, encoding="utf-8") as fh:
+        data = json.load(fh)
+    if not isinstance(data, list):
+        raise ValueError("golden file must be a JSON list of instruments")
+    for entry in data:
+        if "instrument" not in entry or "expected" not in entry:
+            raise ValueError("each golden entry needs 'instrument' and 'expected'")
+    return data
+
+
+def score_set(golden: list[dict], predictions: dict[str, dict[str, str]]) -> dict:
+    """Score predictions (instrument -> {code: classification}) against the golden set."""
+    per = {}
+    recalls, precisions = [], []
+    for entry in golden:
+        name = entry["instrument"]
+        pred = predictions.get(name, {})
+        m = score_instrument(entry["expected"], pred)
+        per[name] = m
+        recalls.append(m["extraction_recall"])
+        precisions.append(m["mapping_precision"])
+    n = len(golden) or 1
+    return {
+        "instruments": len(golden),
+        "mean_extraction_recall": round(sum(recalls) / n, 3),
+        "mean_mapping_precision": round(sum(precisions) / n, 3),
+        "per_instrument": per,
+    }
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description="LawTrack eval harness.")
+    ap.add_argument("--golden", help="Path to the golden JSON.")
+    ap.add_argument("--predictions", help="Path to a predictions JSON (instrument -> {code: class}).")
+    args = ap.parse_args()
+
+    if not args.golden:
+        # self-test: no files needed, proves the scorer runs
+        expected = {"OT/d": "match", "BH": "match", "Sun/Hol": "match", "Not": "match", "BH->pay": "adjust"}
+        predicted = {"OT/d": "match", "BH": "match", "Sun/Hol": "adjust", "Not": "match"}
+        print(json.dumps(score_instrument(expected, predicted), indent=2))
+        return 0
+
+    golden = load_golden(args.golden)
+    if not args.predictions:
+        # validate + summarize; score golden-vs-itself as a sanity ceiling
+        perfect = {e["instrument"]: e["expected"] for e in golden}
+        print(json.dumps(score_set(golden, perfect), indent=2))
+        return 0
+
+    with open(args.predictions, encoding="utf-8") as fh:
+        preds = json.load(fh)
+    print(json.dumps(score_set(golden, preds), indent=2))
+    return 0
 
 
 if __name__ == "__main__":
-    # Smoke test of the scorer on a hand example (no API, no golden file needed).
-    expected = {"OT/d": "match", "BH": "match", "Sun/Hol": "match", "Not": "match", "BH->pay": "adjust"}
-    predicted = {"OT/d": "match", "BH": "match", "Sun/Hol": "adjust", "Not": "match"}
-    print(score_instrument(expected, predicted))
+    sys.exit(main())

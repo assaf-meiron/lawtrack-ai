@@ -1,20 +1,23 @@
 """Database engine + session for the LawTrack app.
 
-Postgres via SQLAlchemy 2.0. `DATABASE_URL` overrides the local docker-compose default.
+Postgres via SQLAlchemy 2.0 in production; the URL comes from settings
+(`LAWTRACK_DATABASE_URL`). Tests point it at SQLite — `connect_args` is applied
+only for SQLite so the same engine code serves both.
 """
 from __future__ import annotations
-
-import os
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    "postgresql+psycopg://lawtrack:lawtrack@localhost:5432/lawtrack",
-)
+from .config import get_settings
 
-engine = create_engine(DATABASE_URL, echo=False, future=True)
+_settings = get_settings()
+
+_connect_args = {"check_same_thread": False} if _settings.database_url.startswith("sqlite") else {}
+
+engine = create_engine(
+    _settings.database_url, echo=False, future=True, connect_args=_connect_args
+)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 
 
