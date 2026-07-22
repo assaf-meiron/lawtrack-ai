@@ -13,7 +13,7 @@ from schema import RawFinding
 
 RECORD_FINDING_TOOL = {
     "name": "record_finding",
-    "description": "Record ONE time-&-attendance / pay rule found in the agreement. "
+    "description": "Record ONE time-&-attendance / pay rule found in the document. "
                    "Call once per distinct rule (a single paragraph can hold several).",
     "strict": True,
     "input_schema": {
@@ -34,10 +34,12 @@ RECORD_FINDING_TOOL = {
 }
 
 INSTRUCTION = (
-    "Read the collective agreement. For EVERY clause that affects time & attendance or pay "
-    "(overtime, hours bank, Sunday/holiday, night, tolerance, on-call, breaks/rest, shift scales, "
-    "absences), call record_finding once — quoting the exact clause text verbatim in source_quote. "
-    "Ignore union dues, grievance procedures, and social clauses. Then stop."
+    "Read this labor-rule document — it may be a statute or labor code, a collective/union agreement "
+    "(CCT, ACT, CBA, CCN, Tarifvertrag, Award, …), or a reform/amendment. For EVERY clause that "
+    "affects time & attendance or pay (overtime, hours bank, Sunday/holiday, night, tolerance, "
+    "on-call, breaks/rest, shift scales, absences), call record_finding once — quoting the exact "
+    "clause text verbatim in source_quote. Ignore union dues, grievance procedures, and social "
+    "clauses. Then stop."
 )
 
 

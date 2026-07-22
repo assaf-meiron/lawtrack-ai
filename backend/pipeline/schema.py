@@ -11,6 +11,8 @@ from typing import Optional
 
 from pydantic import BaseModel, Field
 
+from taxonomy import CapabilityCode
+
 
 class ClauseFamily(str, Enum):
     overtime = "overtime"
@@ -56,6 +58,9 @@ class RawFinding(BaseModel):
 class MappedFinding(BaseModel):
     """Mapping output (③): a RawFinding classified against policy + statute."""
     clause_family: ClauseFamily
+    capability_code: CapabilityCode = Field(
+        description="Exactly one of the 17 taxonomy codes (the eval/mapping key), e.g. 'OT/d', 'Sun/Hol'."
+    )
     source_quote: str
     page: int
     rule_summary: str

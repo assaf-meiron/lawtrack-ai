@@ -34,12 +34,37 @@ from .db import Base
 # --- enums (mirror pipeline/schema.py) ---------------------------------------
 
 class DocType(str, enum.Enum):
-    cba = "cba"
-    cct = "cct"
-    statute = "statute"
-    reform = "reform"
-    policy = "policy"
+    """The kind of labor-rule document ingested, grouped by the legal layer it belongs to
+    (docs/lawtrack-ai/document-types.md). Any document that can drive a T&A configuration
+    change is in scope — not just Brazil CCTs. Union/collective agreements are the layer that
+    *changes* pay; statutes/laws are the *floor* used for 🟣 Conflict detection."""
+
+    # union / collective agreements (the pay-changing layer)
+    cct = "cct"                                   # Convenção Coletiva de Trabalho (BR)
+    act = "act"                                   # Acordo Coletivo de Trabalho (BR)
+    cba = "cba"                                   # collective bargaining agreement (US / generic)
+    ccn = "ccn"                                   # Convention Collective Nationale (FR)
+    tarifvertrag = "tarifvertrag"                 # sectoral collective agreement (DE)
+    award = "award"                               # modern award (AU) and equivalents
+    collective_agreement = "collective_agreement"  # generic union agreement, other jurisdictions
+
+    # statutes & laws (the statutory floor)
+    statute = "statute"                           # federal / country labor code or statute
+    state_law = "state_law"                       # state / province / jurisdiction law
+    reform = "reform"                             # amendment / reform bill in flight
+
+    # other
+    policy = "policy"                             # a pay-policy document
     other = "other"
+
+
+# Document-role groupings (docs/lawtrack-ai/document-types.md §"three legal layers"):
+# a union agreement is the layer that changes pay; a statute/law is the conflict floor.
+UNION_AGREEMENT_DOC_TYPES = frozenset({
+    DocType.cct, DocType.act, DocType.cba, DocType.ccn,
+    DocType.tarifvertrag, DocType.award, DocType.collective_agreement,
+})
+STATUTORY_DOC_TYPES = frozenset({DocType.statute, DocType.state_law, DocType.reform})
 
 
 class DocStatus(str, enum.Enum):
@@ -230,6 +255,7 @@ class Finding(Base):
 
     # extraction + mapping (mirrors MappedFinding)
     clause_family: Mapped[str] = mapped_column(String(64))
+    capability_code: Mapped[str | None] = mapped_column(String(32), default=None)  # 17-taxonomy code (the mapping/eval key)
     clause_ref: Mapped[str | None] = mapped_column(String(128), default=None)   # e.g. "Cláusula 11ª"
     title: Mapped[str | None] = mapped_column(String(512), default=None)
     source_quote: Mapped[str] = mapped_column(Text)                 # verbatim clause (the citation)

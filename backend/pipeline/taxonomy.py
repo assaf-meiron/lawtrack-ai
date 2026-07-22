@@ -6,6 +6,9 @@ prompt-cache (`../technical-design.md` → prompt caching).
 """
 from __future__ import annotations
 
+import re
+from enum import Enum
+
 # (code, capability, pay-policy tab). `code` matches the support-matrix columns.
 CAPABILITIES: list[tuple[str, str, str]] = [
     ("Jorn",     "Standard-hours target (jornada 8h/44h)",                          "A · Paid Overtime"),
@@ -27,6 +30,24 @@ CAPABILITIES: list[tuple[str, str, str]] = [
     ("Abono",    "Faltas abonadas / abono with conditional triggers",               "G · Absences"),
 ]
 
+# The 17 capability codes — the single source of truth for the mapping key. The eval golden set
+# is keyed by these exact codes, so a MappedFinding must commit to one (pipeline/schema.py).
+CAPABILITY_CODES: list[str] = [code for code, _, _ in CAPABILITIES]
+CODE_TO_TAB: dict[str, str] = {code: tab for code, _, tab in CAPABILITIES}
+
+
+def _enum_name(code: str) -> str:
+    """A valid Python identifier for an enum member name derived from a capability code."""
+    name = re.sub(r"[^0-9A-Za-z]+", "_", code).strip("_")
+    return f"c_{name}" if name[0].isdigit() else name
+
+
+# A str-enum over the 17 codes (values are the canonical codes, e.g. "OT/d"). Used as the
+# constrained `capability_code` field on MappedFinding so the model picks exactly one.
+CapabilityCode = Enum(
+    "CapabilityCode", {_enum_name(c): c for c in CAPABILITY_CODES}, type=str
+)
+
 CLASSIFICATION_RUBRIC = """
 Classify each rule against BOTH the tenant's current pay policy AND the jurisdiction's statutory floor:
 - match    (🟢): the rule already equals what the policy does.
@@ -45,6 +66,11 @@ def render_taxonomy() -> str:
     lines = ["The engine capability taxonomy (target for mapping). Each row: code | capability | pay-policy tab."]
     for code, cap, tab in CAPABILITIES:
         lines.append(f"  {code:9s} | {cap} | {tab}")
+    lines.append("")
+    lines.append(
+        "Set `capability_code` on every finding to EXACTLY ONE of these codes: "
+        + ", ".join(CAPABILITY_CODES) + "."
+    )
     return "\n".join(lines)
 
 

@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.orm import Session
 
+from .. import pay_policy_schema
 from ..db import get_db
 from ..models import (
     Classification, ConfigValue, Document, DocStatus, Finding, PolicyVersion,
@@ -159,18 +160,22 @@ def finalize_document(document_id: uuid.UUID, db: Session = Depends(get_db), use
         raise HTTPException(400, "nothing new to commit — accept or edit at least one finding first")
 
     new_version = policy.version + 1
-    config = dict(policy.config or {})
+    config = pay_policy_schema.normalize(policy.config)  # structured six-tab config
     changes = gaps = 0
     for f in pending:
         if f.classification == Classification.gap:
+            # 🔴 Gap: no home in the pay policy — capture in the dedicated gap store (feeds the file)
             db.add(UnsupportedCalculation(
-                policy_id=policy.id, document_id=doc.id, finding_id=f.id, capability=f.clause_family,
+                policy_id=policy.id, document_id=doc.id, finding_id=f.id,
+                capability=f.capability_code or f.clause_family,
                 title=f.title, description=f.rule_summary, source_quote=f.source_quote, page=f.page,
                 derived_from=(doc.cba_name or doc.jurisdiction),
             ))
             gaps += 1
         else:
-            config[f.policy_field or f.clause_family] = f.final_value or f.proposed_value or f.current_value or ""
+            code = f.capability_code or f.clause_family
+            value = f.final_value or f.proposed_value or f.current_value or ""
+            pay_policy_schema.set_field(config, code, value, taxonomy_tab=f.policy_tab)
             changes += 1
         f.committed_version = new_version
 
