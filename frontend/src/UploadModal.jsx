@@ -3,9 +3,11 @@ import { Upload, X, ChevronDown, Check, Loader2, Layers, Plus } from "lucide-rea
 import * as api from "./api.js";
 import { T } from "./shared.jsx";
 
+// CCT, CBA, CCN, Tarifvertrag, and Award are all the same underlying thing — a collective
+// agreement — under the local name a given jurisdiction uses. One option, not one per country;
+// `collective_agreement` is the generic DocType the backend already stores this as.
 const DOC_TYPES = [
-  { v: "cct", label: "CCT / collective agreement" },
-  { v: "cba", label: "CBA" },
+  { v: "collective_agreement", label: "Collective agreement (CBA / CCT / CCN / Tarifvertrag)" },
   { v: "statute", label: "Statute / law" },
   { v: "reform", label: "Reform / amendment" },
   { v: "other", label: "Other" },
@@ -36,7 +38,7 @@ export default function UploadModal({ onClose, onUploaded, fireToast }) {
   const [newName, setNewName] = useState("");
   const [newJur, setNewJur] = useState("");
   const [newLayerType, setNewLayerType] = useState("cba");
-  const [docType, setDocType] = useState("cct");
+  const [docType, setDocType] = useState("collective_agreement");
   const [file, setFile] = useState(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
@@ -84,7 +86,7 @@ export default function UploadModal({ onClose, onUploaded, fireToast }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(25,25,23,0.45)" }} onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(35,40,56,0.45)" }} onClick={onClose}>
       <div className="rounded-2xl overflow-hidden flex flex-col" style={{ background: "#fff", width: 480, maxHeight: "90vh", boxShadow: "0 24px 64px rgba(0,0,0,0.3)" }} onClick={(e) => e.stopPropagation()}>
         <div className="px-5 py-4 flex items-center justify-between shrink-0" style={{ borderBottom: `1px solid ${T.line}` }}>
           <div className="text-base font-semibold" style={{ color: T.ink }}>Upload a document</div>
@@ -94,7 +96,7 @@ export default function UploadModal({ onClose, onUploaded, fireToast }) {
         <div className="p-5 overflow-y-auto">
           <button onClick={() => inputRef.current?.click()}
             className="w-full rounded-xl flex flex-col items-center justify-center text-center py-8 px-4"
-            style={{ border: `2px dashed ${file ? T.signal : T.line2}`, background: "#faf9f7" }}>
+            style={{ border: `2px dashed ${file ? T.signal : T.line2}`, background: "#f7f9fc" }}>
             <div className="flex items-center justify-center rounded-full mb-2" style={{ width: 40, height: 40, background: T.ink }}>
               <Upload size={18} color="#fff" />
             </div>
@@ -105,7 +107,7 @@ export default function UploadModal({ onClose, onUploaded, fireToast }) {
 
           {/* which layer does this document belong to? */}
           <Field label="This document is">
-            <div className="inline-flex rounded-lg p-0.5 w-full" style={{ background: "#eceae5", border: `1px solid ${T.line}` }}>
+            <div className="inline-flex rounded-lg p-0.5 w-full" style={{ background: "#eef1f6", border: `1px solid ${T.line}` }}>
               {[
                 { v: "existing", label: "A new edition of a tracked layer", Icon: Layers },
                 { v: "new", label: "A brand-new layer", Icon: Plus },

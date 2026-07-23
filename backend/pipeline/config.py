@@ -8,6 +8,33 @@ from __future__ import annotations
 
 import os
 import sys
+from pathlib import Path
+
+# backend/pipeline/config.py -> pipeline -> backend
+_BACKEND_DIR = Path(__file__).resolve().parents[1]
+
+
+def _load_env_file(path: Path) -> None:
+    """Load KEY=VALUE lines from a gitignored .env into os.environ (never overriding existing vars).
+
+    Mirrors app/config.py's loader: pipeline scripts are run standalone (`import config`, not
+    `app.config`), so ANTHROPIC_API_KEY in backend/.env would otherwise never reach os.environ
+    when the pipeline is invoked outside the FastAPI app.
+    """
+    if not path.exists():
+        return
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, val = line.partition("=")
+        key = key.strip()
+        val = val.strip().strip('"').strip("'")
+        if key and val:
+            os.environ.setdefault(key, val)
+
+
+_load_env_file(_BACKEND_DIR / ".env")
 
 MODEL_MAP = "claude-opus-4-8"        # ③ mapping — correctness matters most
 MODEL_EXTRACT = "claude-sonnet-5"    # ② extraction — near-commodity, volume

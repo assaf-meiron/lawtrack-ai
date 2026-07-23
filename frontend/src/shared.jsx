@@ -10,11 +10,11 @@ import {
   Activity,
 } from "lucide-react";
 
-/* Neutral design tokens (from the prototype). */
+/* Design tokens — day.io brand: navy ink + brand blue accent (day.io/favicon.svg is the source mark). */
 export const T = {
-  paper: "#f4f4f2", panel: "#ffffff", ink: "#191917", ink2: "#3a3833",
-  muted: "#6f6d68", faint: "#9a978f", line: "#e7e6e2", line2: "#d9d7d1",
-  signal: "#0e7490", signalSoft: "#ecfeff",
+  paper: "#f5f7fa", panel: "#ffffff", ink: "#232838", ink2: "#3d4459",
+  muted: "#6b7280", faint: "#98a1b3", line: "#e3e6ed", line2: "#d5d9e3",
+  signal: "#1e97f7", signalSoft: "#e9f5ff",
 };
 
 /* The only saturated color in the product — the change taxonomy, keyed by the
@@ -62,7 +62,7 @@ export function LayerChip({ policy, className = "" }) {
     return (
       <span className={`inline-flex items-center gap-1.5 min-w-0 ${className}`}>
         <span className="uppercase tracking-wide rounded px-1.5 py-0.5 shrink-0"
-          style={{ fontSize: 9, background: "#f3f2ef", color: T.faint, border: `1px solid ${T.line}` }}>
+          style={{ fontSize: 9, background: "#eef0f4", color: T.faint, border: `1px solid ${T.line}` }}>
           No layer
         </span>
         <span className="truncate" style={{ color: T.faint }}>author mode</span>
@@ -102,12 +102,22 @@ export const norm = (s) => (s || "").replace(/\s+/g, " ").trim();
 export const flag = { BR: "🇧🇷", FR: "🇫🇷", MX: "🇲🇽", DE: "🇩🇪", US: "🇺🇸" };
 export const countryFlag = (j) => flag[(j || "").slice(0, 2).toUpperCase()] || "🌐";
 
+// Local names for the same underlying document — a collective agreement — are still
+// recognized for documents uploaded before the doc-type list was collapsed to one option.
+const DOC_TYPE_LABEL = {
+  cct: "CCT", act: "ACT", cba: "CBA", ccn: "CCN", tarifvertrag: "Tarifvertrag", award: "Award",
+  collective_agreement: "Collective agreement",
+  statute: "Statute", state_law: "State law", reform: "Reform",
+  policy: "Policy", other: "Other",
+};
+export const docTypeLabel = (dt) => DOC_TYPE_LABEL[dt] || dt;
+
 const STATUS = {
-  new: { label: "New", bg: "#191917", color: "#fff" },
+  new: { label: "New", bg: "#232838", color: "#fff" },
   analyzing: { label: "Analyzing", bg: "#fff7ed", color: "#c2410c", border: "#fed7aa", spin: true },
   analyzed: { label: "Ready", bg: "#ecfdf5", color: "#047857", border: "#a7f3d0" },
   in_review: { label: "In review", bg: "#fffbeb", color: "#b45309", border: "#fde68a" },
-  reviewed: { label: "Reviewed", bg: "#f3f2ef", color: "#6f6d68", border: "#d9d7d1" },
+  reviewed: { label: "Reviewed", bg: "#eef0f4", color: "#6b7280", border: "#d5d9e3" },
   error: { label: "Error", bg: "#fef2f2", color: "#b91c1c", border: "#fecaca" },
 };
 
@@ -131,7 +141,7 @@ export function Toast({ toast }) {
       ? { bg: "#059669", Icon: CheckCircle }
       : toast.tone === "error"
       ? { bg: "#dc2626", Icon: AlertTriangle }
-      : { bg: "#191917", Icon: Activity };
+      : { bg: "#232838", Icon: Activity };
   const Icon = tone.Icon;
   return (
     <div

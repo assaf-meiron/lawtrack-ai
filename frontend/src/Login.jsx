@@ -1,7 +1,8 @@
 import React, { useState } from "react";
-import { Radar, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { useAuth } from "./auth.jsx";
 import { T } from "./shared.jsx";
+import dayioLogo from "./assets/dayio-logo.svg";
 
 export default function Login() {
   const { login } = useAuth();
@@ -30,13 +31,11 @@ export default function Login() {
         className="rounded-2xl w-full"
         style={{ maxWidth: 380, background: "#fff", border: `1px solid ${T.line}`, boxShadow: "0 12px 40px rgba(0,0,0,0.10)" }}
       >
-        <div className="p-6 pb-4 flex items-center gap-3" style={{ borderBottom: `1px solid ${T.line}` }}>
-          <div className="flex items-center justify-center rounded-xl" style={{ width: 40, height: 40, background: T.ink }}>
-            <Radar size={22} color="#fff" />
-          </div>
+        <div className="p-6 pb-4 flex flex-col items-center gap-3 text-center" style={{ borderBottom: `1px solid ${T.line}` }}>
+          <img src={dayioLogo} alt="day.io" style={{ height: 24, width: "auto" }} />
           <div>
             <div className="text-lg font-semibold tracking-tight" style={{ color: T.ink }}>LawTrack AI</div>
-            <div className="text-xs" style={{ color: T.muted }}>day.io · internal sign in</div>
+            <div className="text-xs" style={{ color: T.muted }}>internal sign in</div>
           </div>
         </div>
         <div className="p-6 flex flex-col gap-3">
@@ -69,7 +68,7 @@ export default function Login() {
             type="submit"
             disabled={busy || !username || !password}
             className="mt-1 flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold text-white transition-transform active:scale-95"
-            style={{ background: T.ink, opacity: busy || !username || !password ? 0.6 : 1 }}
+            style={{ background: T.signal, opacity: busy || !username || !password ? 0.6 : 1 }}
           >
             {busy && <Loader2 size={15} className="animate-spin" />} Sign in
           </button>

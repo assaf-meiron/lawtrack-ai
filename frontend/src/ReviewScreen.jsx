@@ -4,7 +4,7 @@ import {
   HelpCircle, Copy, ClipboardCheck, MessageSquare, Send, Sparkles,
 } from "lucide-react";
 import * as api from "./api.js";
-import { T, CLASS, CLASS_ORDER, counts, confidenceMeta, countryFlag, norm, LayerChip } from "./shared.jsx";
+import { T, CLASS, CLASS_ORDER, counts, confidenceMeta, countryFlag, docTypeLabel, norm, LayerChip } from "./shared.jsx";
 
 // Copy text to the clipboard with a graceful fallback for non-secure contexts.
 async function copyToClipboard(text) {
@@ -164,7 +164,7 @@ export default function ReviewScreen({ docId, onBack, fireToast }) {
                   </button>
                 </>
               )}
-              <span className="uppercase tracking-wide rounded px-1.5 py-0.5 shrink-0" style={{ fontSize: 9, background: "#f3f2ef", color: T.muted, border: `1px solid ${T.line}` }}>{doc.doc_type}</span>
+              <span className="uppercase tracking-wide rounded px-1.5 py-0.5 shrink-0" style={{ fontSize: 9, background: "#eef0f4", color: T.muted, border: `1px solid ${T.line}` }}>{docTypeLabel(doc.doc_type)}</span>
             </div>
             <div className="text-xs mt-0.5" style={{ color: T.muted }}>{[doc.source, doc.subtitle].filter(Boolean).join(" · ")}</div>
           </div>
@@ -206,7 +206,7 @@ export default function ReviewScreen({ docId, onBack, fireToast }) {
           return (
             <button key={k} onClick={() => toggleFilter(k)}
               className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium transition-opacity"
-              style={{ background: on ? tt.markBg : "#f6f5f3", color: on ? tt.dot : T.faint, border: `1px solid ${on ? tt.markLine : T.line}`, opacity: on ? 1 : 0.6 }}>
+              style={{ background: on ? tt.markBg : "#eef1f5", color: on ? tt.dot : T.faint, border: `1px solid ${on ? tt.markLine : T.line}`, opacity: on ? 1 : 0.6 }}>
               <span className="inline-block rounded-full" style={{ width: 8, height: 8, background: tt.dot }} />
               {tt.label} · {n}
             </button>
@@ -225,7 +225,7 @@ export default function ReviewScreen({ docId, onBack, fireToast }) {
 
       {/* split */}
       <div className="flex-1 flex min-h-0">
-        <div className="flex-1 min-w-0 overflow-y-auto" style={{ background: "#eeede9" }}>
+        <div className="flex-1 min-w-0 overflow-y-auto" style={{ background: "#eaedf2" }}>
           <div className="mx-auto py-6 px-6" style={{ maxWidth: hasImages && viewMode === "both" ? 1180 : 720 }}>
             <div className="mb-3 flex items-center justify-between gap-2">
               <div className="flex items-center gap-2 text-xs" style={{ color: T.muted }}>
@@ -346,7 +346,7 @@ function PageImage({ docId, page }) {
 function SourceViewer({ doc, findings, active, filters, onSelect, spanRefs, pageRefs, numberOf, viewMode }) {
   const pages = doc.pages || [];
   if (pages.length === 0) {
-    return <div className="rounded-lg p-6 text-sm" style={{ background: "#fffdf9", border: `1px solid ${T.line2}`, color: T.faint }}>
+    return <div className="rounded-lg p-6 text-sm" style={{ background: "#fafbfd", border: `1px solid ${T.line2}`, color: T.faint }}>
       No rendered source is stored for this document.
     </div>;
   }
@@ -388,7 +388,7 @@ function SourceViewer({ doc, findings, active, filters, onSelect, spanRefs, page
         const showImage = viewMode !== "text" && page.has_image;
         const showText = viewMode !== "image";
         const textCol = (
-          <div className="px-10 py-9" style={{ fontFamily: 'Georgia, "Times New Roman", serif', color: "#26241f" }}>
+          <div className="px-10 py-9" style={{ fontFamily: 'Georgia, "Times New Roman", serif', color: "#262b3d" }}>
             {(page.blocks || []).map((b, bi) => {
               if (b.kind === "para") {
                 return (b.paras || []).map((p, pj) => renderParagraph(p, page.page, `p${bi}-${pj}`));
@@ -425,7 +425,7 @@ function SourceViewer({ doc, findings, active, filters, onSelect, spanRefs, page
 
         return (
           <div key={page.page} ref={(el) => (pageRefs.current[page.page] = el)} className="rounded-sm"
-            style={{ background: "#fffdf9", border: `1px solid ${T.line2}`, boxShadow: "0 6px 20px rgba(0,0,0,0.10)" }}>
+            style={{ background: "#fafbfd", border: `1px solid ${T.line2}`, boxShadow: "0 6px 20px rgba(0,0,0,0.10)" }}>
             {showText && page.transcribed && (
               <div className="px-10 pt-5" style={{ marginBottom: -12 }}>
                 <span
@@ -439,13 +439,13 @@ function SourceViewer({ doc, findings, active, filters, onSelect, spanRefs, page
             )}
             <div className={both ? "grid" : ""} style={both ? { gridTemplateColumns: "1fr 1fr" } : {}}>
               {showImage && (
-                <div style={{ background: "#eeede9", borderRight: both ? `1px solid ${T.line}` : "none" }}>
+                <div style={{ background: "#eaedf2", borderRight: both ? `1px solid ${T.line}` : "none" }}>
                   {imageCol}
                 </div>
               )}
               {showText && textCol}
             </div>
-            <div className="px-10 py-2 flex items-center justify-between text-xs" style={{ borderTop: `1px solid ${T.line}`, color: "#9a968c", fontFamily: "Georgia, serif" }}>
+            <div className="px-10 py-2 flex items-center justify-between text-xs" style={{ borderTop: `1px solid ${T.line}`, color: "#98a1b3", fontFamily: "Georgia, serif" }}>
               <span>{doc.cba_name}</span>
               <span>Página {page.page} de {pages.length}</span>
             </div>
@@ -481,7 +481,7 @@ function ChangeCard({ f, num, active, onSelect, onReview, cardRefs, authorMode, 
           </div>
           <div className="text-sm font-semibold mt-1 leading-snug" style={{ color: T.ink }}>{f.title || f.rule_summary}</div>
         </div>
-        {f.clause_ref && <span className="shrink-0 rounded px-1.5 py-0.5 text-xs" style={{ background: "#f6f5f3", color: T.muted, border: `1px solid ${T.line}` }}>{f.clause_ref}</span>}
+        {f.clause_ref && <span className="shrink-0 rounded px-1.5 py-0.5 text-xs" style={{ background: "#eef1f5", color: T.muted, border: `1px solid ${T.line}` }}>{f.clause_ref}</span>}
       </div>
 
       <div className="px-3.5 pb-3 text-xs leading-relaxed" style={{ color: T.ink2 }}>{f.rule_summary}</div>
@@ -495,11 +495,11 @@ function ChangeCard({ f, num, active, onSelect, onReview, cardRefs, authorMode, 
           </div>
         ) : (
           <div className="flex items-stretch">
-            <div className="flex-1 p-2.5" style={{ background: "#faf9f7" }}>
+            <div className="flex-1 p-2.5" style={{ background: "#f7f9fc" }}>
               <div className="uppercase tracking-wider mb-1" style={{ fontSize: 9, color: T.faint }}>Current policy</div>
               <div className="text-xs font-medium" style={{ color: T.muted }}>{f.current_value || "—"}</div>
             </div>
-            <div className="flex items-center px-1.5" style={{ background: "#faf9f7", color: T.faint }}>→</div>
+            <div className="flex items-center px-1.5" style={{ background: "#f7f9fc", color: T.faint }}>→</div>
             <div className="flex-1 p-2.5" style={{ background: tt.markBg }}>
               <div className="uppercase tracking-wider mb-1" style={{ fontSize: 9, color: tt.dot }}>{f.final_value ? "Corrected" : "Proposed"}</div>
               <div className="text-xs font-semibold" style={{ color: tt.dot }}>{f.final_value || f.proposed_value || "—"}</div>
@@ -518,7 +518,7 @@ function ChangeCard({ f, num, active, onSelect, onReview, cardRefs, authorMode, 
       </div>
 
       {/* recommended action */}
-      <div className="px-3.5 py-2.5 text-xs leading-relaxed" style={{ borderTop: `1px solid ${T.line}`, color: T.ink2, background: active ? "transparent" : "#faf9f7" }}>
+      <div className="px-3.5 py-2.5 text-xs leading-relaxed" style={{ borderTop: `1px solid ${T.line}`, color: T.ink2, background: active ? "transparent" : "#f7f9fc" }}>
         <span className="font-semibold" style={{ color: T.ink }}>Recommended · </span>{f.rationale}
       </div>
 
@@ -527,7 +527,7 @@ function ChangeCard({ f, num, active, onSelect, onReview, cardRefs, authorMode, 
         <span className="flex-1">“{f.source_quote}”</span>
         <button onClick={(e) => { e.stopPropagation(); onSelect(); }} title="Jump to this page in the source viewer"
           className="not-italic shrink-0 rounded-full px-1.5 py-0.5 font-medium active:scale-90 transition-transform"
-          style={{ fontSize: 10.5, background: "#f6f5f3", color: T.faint, border: `1px solid ${T.line}` }}>
+          style={{ fontSize: 10.5, background: "#eef1f5", color: T.faint, border: `1px solid ${T.line}` }}>
           p.{f.page}
         </button>
       </div>
@@ -557,7 +557,7 @@ function ChangeCard({ f, num, active, onSelect, onReview, cardRefs, authorMode, 
             onClick={() => { setEditing(false); setAsking((v) => !v); }} />
           <button onClick={() => setChatOpen((v) => !v)} title="Chat about this finding"
             className="ml-auto flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors"
-            style={{ background: chatOpen ? "#f3f2ef" : "#fff", color: T.ink2, border: `1px solid ${T.line2}` }}>
+            style={{ background: chatOpen ? "#eef0f4" : "#fff", color: T.ink2, border: `1px solid ${T.line2}` }}>
             <MessageSquare size={13} /> Chat{f.chat_messages?.length ? ` · ${Math.floor(f.chat_messages.length / 2) || 1}` : ""}
           </button>
         </div>
@@ -669,7 +669,7 @@ function ChatPanel({ f, fireToast, onApply }) {
   }
 
   return (
-    <div className="mt-2.5 rounded-lg overflow-hidden" style={{ border: `1px solid ${T.line2}`, background: "#fbfbfa" }}>
+    <div className="mt-2.5 rounded-lg overflow-hidden" style={{ border: `1px solid ${T.line2}`, background: "#fafbfc" }}>
       <div className="px-2.5 py-1.5 text-xs flex items-center gap-1.5" style={{ borderBottom: `1px solid ${T.line}`, color: T.muted }}>
         <MessageSquare size={12} /> Ask about this finding
       </div>

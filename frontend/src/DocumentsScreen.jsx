@@ -4,10 +4,13 @@ import {
   Loader2, RefreshCw, Check, Trash2, LayoutGrid, List,
 } from "lucide-react";
 import * as api from "./api.js";
-import { T, CLASS, CLASS_ORDER, counts, countryFlag, StatusPill, LayerChip } from "./shared.jsx";
+import { T, CLASS, CLASS_ORDER, counts, countryFlag, docTypeLabel, StatusPill, LayerChip } from "./shared.jsx";
 import UploadModal from "./UploadModal.jsx";
 
-const KIND_ICON = { cct: FileText, cba: FileText, statute: Gavel, reform: FilePlus, policy: FileText, other: FileText };
+const KIND_ICON = {
+  collective_agreement: FileText, cct: FileText, act: FileText, cba: FileText, ccn: FileText, tarifvertrag: FileText, award: FileText,
+  statute: Gavel, state_law: Gavel, reform: FilePlus, policy: FileText, other: FileText,
+};
 
 export default function DocumentsScreen({ onOpen, fireToast }) {
   const [docs, setDocs] = useState([]);
@@ -84,7 +87,7 @@ export default function DocumentsScreen({ onOpen, fireToast }) {
       <div className="px-6 pt-6 pb-2 flex flex-wrap items-center gap-3 justify-between">
         <div className="flex items-center gap-3">
           {/* view: cards vs detailed list */}
-          <div className="inline-flex rounded-lg p-0.5" style={{ background: "#eceae5", border: `1px solid ${T.line}` }}>
+          <div className="inline-flex rounded-lg p-0.5" style={{ background: "#eef1f6", border: `1px solid ${T.line}` }}>
             {[{ v: "cards", label: "Cards", Icon: LayoutGrid }, { v: "list", label: "List", Icon: List }].map((o) => {
               const on = view === o.v; const Icon = o.Icon;
               return (
@@ -97,7 +100,7 @@ export default function DocumentsScreen({ onOpen, fireToast }) {
             })}
           </div>
           {view === "cards" && (
-            <div className="inline-flex rounded-lg p-0.5" style={{ background: "#eceae5", border: `1px solid ${T.line}` }}>
+            <div className="inline-flex rounded-lg p-0.5" style={{ background: "#eef1f6", border: `1px solid ${T.line}` }}>
               {[{ v: "country", label: "By country", Icon: Building2 }, { v: "cba", label: "By CBA", Icon: Layers }].map((o) => {
                 const on = groupBy === o.v; const Icon = o.Icon;
                 return (
@@ -193,13 +196,13 @@ function DocCard({ doc, onOpen, onAnalyze, onDelete }) {
       <div className="p-4 pb-3">
         <div className="flex items-start justify-between gap-2">
           <div className="flex items-start gap-2.5 min-w-0">
-            <div className="flex items-center justify-center rounded-lg shrink-0" style={{ width: 32, height: 32, background: "#f3f2ef", border: `1px solid ${T.line}` }}>
+            <div className="flex items-center justify-center rounded-lg shrink-0" style={{ width: 32, height: 32, background: "#eef0f4", border: `1px solid ${T.line}` }}>
               <KindIcon size={16} color={T.ink2} />
             </div>
             <div className="min-w-0">
               <div className="text-sm font-semibold leading-snug truncate" style={{ color: T.ink }}>{doc.title}</div>
               <div className="text-xs mt-0.5 flex items-center gap-1.5" style={{ color: T.muted }}>
-                <span className="uppercase tracking-wide" style={{ fontSize: 10 }}>{doc.doc_type}</span>
+                <span className="uppercase tracking-wide" style={{ fontSize: 10 }}>{docTypeLabel(doc.doc_type)}</span>
                 <span style={{ color: T.line2 }}>·</span>
                 <span className="truncate">{countryFlag(doc.jurisdiction)} {doc.jurisdiction}</span>
               </div>
@@ -219,7 +222,7 @@ function DocCard({ doc, onOpen, onAnalyze, onDelete }) {
         )}
       </div>
 
-      <div className="px-4 py-3 flex items-center justify-between gap-2" style={{ borderTop: `1px solid ${T.line}`, background: "#faf9f7" }}>
+      <div className="px-4 py-3 flex items-center justify-between gap-2" style={{ borderTop: `1px solid ${T.line}`, background: "#f7f9fc" }}>
         <div className="min-w-0">
           <div className="uppercase tracking-wider" style={{ fontSize: 9, color: T.faint }}>Layer</div>
           <div className="text-xs font-medium truncate"><LayerChip policy={doc.policy} /></div>
@@ -248,7 +251,7 @@ function DocCard({ doc, onOpen, onAnalyze, onDelete }) {
         )}
       </div>
       {doc.status === "reviewed" && (
-        <div className="px-4 py-1.5 text-xs flex items-center gap-1.5" style={{ color: T.faint, background: "#faf9f7", borderTop: `1px solid ${T.line}` }}>
+        <div className="px-4 py-1.5 text-xs flex items-center gap-1.5" style={{ color: T.faint, background: "#f7f9fc", borderTop: `1px solid ${T.line}` }}>
           <Check size={12} /> Reconciled — decision record saved
         </div>
       )}
@@ -334,7 +337,7 @@ function DocTable({ docs, onOpen, onAnalyze, onDelete }) {
       <div style={{ overflowX: "auto" }}>
         <table className="w-full text-sm" style={{ borderCollapse: "collapse", minWidth: 860 }}>
           <thead>
-            <tr style={{ background: "#faf9f7", borderBottom: `1px solid ${T.line}` }}>
+            <tr style={{ background: "#f7f9fc", borderBottom: `1px solid ${T.line}` }}>
               {HEAD.map((h, i) => (
                 <th key={i} className="text-left uppercase tracking-wider px-3 py-2.5 font-semibold" style={{ fontSize: 9, color: T.faint }}>{h}</th>
               ))}
@@ -362,7 +365,7 @@ function DocRow({ doc, onOpen, onAnalyze, onDelete }) {
           <div className="min-w-0">
             <div className="font-medium truncate" style={{ color: T.ink, maxWidth: 280 }}>{doc.title}</div>
             <div className="text-xs" style={{ color: T.faint }}>
-              <span className="uppercase tracking-wide" style={{ fontSize: 9 }}>{doc.doc_type}</span> · {countryFlag(doc.jurisdiction)} {doc.jurisdiction}
+              <span className="uppercase tracking-wide" style={{ fontSize: 9 }}>{docTypeLabel(doc.doc_type)}</span> · {countryFlag(doc.jurisdiction)} {doc.jurisdiction}
             </div>
           </div>
         </div>
