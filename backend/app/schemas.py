@@ -115,6 +115,7 @@ class DocumentOut(ORMModel):
     cba_name: Optional[str] = None
     doc_type: str
     title: str
+    title_auto: bool = True
     subtitle: Optional[str] = None
     source: Optional[str] = None
     effective_from: Optional[date] = None
@@ -127,6 +128,7 @@ class DocumentOut(ORMModel):
     has_file: bool = False
     finalized_at: Optional[datetime] = None
     created_at: datetime
+    updated_at: Optional[datetime] = None
 
 
 class FindingOut(ORMModel):
@@ -151,6 +153,7 @@ class FindingOut(ORMModel):
     reviewer: Optional[str] = None
     reviewer_name: Optional[str] = None
     review_notes: Optional[str] = None
+    chat_messages: Optional[list[Any]] = None
     final_value: Optional[str] = None
     committed_version: Optional[int] = None
     reviewed_at: Optional[datetime] = None
@@ -162,10 +165,17 @@ class DocumentDetail(DocumentOut):
     policy: Optional[PayPolicyOut] = None
 
 
+class DocumentUpdate(BaseModel):
+    """Editable document metadata (inline rename)."""
+    title: Optional[str] = None
+    subtitle: Optional[str] = None
+
+
 # --- review ------------------------------------------------------------------
 
 class ReviewAction(BaseModel):
-    """approve | correct | reject. `correct` requires `final_value`."""
+    """approve | correct | reject | unsure. `correct` requires `final_value`;
+    `unsure` parks the finding as an open question (put the question in `notes`)."""
     action: str
     notes: Optional[str] = None
     final_value: Optional[str] = None
@@ -173,6 +183,25 @@ class ReviewAction(BaseModel):
     capability: Optional[str] = None
     condition: Optional[str] = None
     effective_date: Optional[date] = None
+
+
+# --- finding chat ------------------------------------------------------------
+
+class ChatSuggestion(BaseModel):
+    """An optional revision the assistant proposes after discussing a finding."""
+    proposed_value: Optional[str] = None
+    classification: Optional[str] = None
+    rationale: Optional[str] = None
+
+
+class FindingChatRequest(BaseModel):
+    message: str
+
+
+class FindingChatResponse(BaseModel):
+    reply: str
+    chat_messages: list[Any] = []
+    suggestion: Optional[ChatSuggestion] = None
 
 
 # --- verified output ---------------------------------------------------------

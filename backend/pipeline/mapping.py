@@ -18,7 +18,7 @@ def map_findings(client, raw: list[RawFinding], policy_json: str, statute_note: 
     system_text = build_mapping_system(policy_json, statute_note)
     raw_dump = json.dumps([f.model_dump() for f in raw], ensure_ascii=False, indent=2)
 
-    parsed = client.messages.parse(
+    with client.messages.stream(
         model=config.MODEL_MAP,
         max_tokens=config.MAX_TOKENS_MAP,
         thinking={"type": "adaptive"},  # effort defaults to high on Opus 4.8
@@ -29,9 +29,14 @@ def map_findings(client, raw: list[RawFinding], policy_json: str, statute_note: 
         }],
         messages=[{
             "role": "user",
-            "content": "Map each extracted finding below. Return one mapped finding per input, in order.\n\n"
+            "content": "Write a normalized configuration recommendation for each extracted rule below "
+                       "(or flag it if ambiguous). Return one mapped finding per input, in order. "
+                       "Also set document_title to the instrument's official printed name (and an "
+                       "optional document_subtitle with parties/sector/period) inferred from the "
+                       "clauses — never a file name; leave null if it can't be determined.\n\n"
                        + raw_dump,
         }],
         output_format=MappingResult,
-    )
-    return parsed.parsed_output
+    ) as stream:
+        message = stream.get_final_message()
+    return message.parsed_output

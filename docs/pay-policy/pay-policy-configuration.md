@@ -42,6 +42,17 @@
 
 ---
 
+> ⚠️ **Owner correction (Assaf, 2026-07-23) — pending elaboration.** Two capabilities this doc previously
+> framed as *target/not-current* are in fact **supported today**; treat them as current (`C`) until the
+> detail below is rewritten:
+> 1. **Daily *and* weekly regular hours** are configurable — and therefore so are **daily and weekly OT
+>    thresholds**. (Supersedes the "no regular-hours-target control" claims in §3 / §3.3 and the
+>    target-only framing in §10.)
+> 2. **Break rules** are configurable (intrajornada/meal-break and related), not merely a Reconcile-time
+>    measurement.
+>
+> Assaf to elaborate on the exact fields/controls; this callout is the interim correction.
+
 ## 1. The object at a glance
 
 A pay policy is the **compensation bundle** assigned to employees — it defines **how a company
@@ -108,8 +119,9 @@ Alongside the Pay Policies list sits a separate **Exceptions** area (§9) — *n
 
 > **What this tab is.** How overtime is compensated — rates, hours bank, calculation method. **OT is
 > the surplus of actual worked time above the planned shift** (planned hours come from the schedule).
-> *Confirmed: there is **no** regular-hours-target control in the pay policy today* —
-> `regularHoursDuration` is a target concept (`T`, §10), not a UI control.
+> ~~*Confirmed: there is **no** regular-hours-target control in the pay policy today* —
+> `regularHoursDuration` is a target concept (`T`, §10), not a UI control.~~ **Corrected 2026-07-23:
+> daily and weekly regular-hours targets ARE supported (see the owner-correction callout above).**
 
 ### 3.1 Banked Hours activation — the fundamental toggle
 
@@ -145,7 +157,9 @@ Whether the hours bank is activated is a **fundamental** pay-policy choice:
 ### 3.3 Extra hours settings (overtime onset)
 
 > **OT onset baseline** — OT is the **surplus of actual worked time above the planned shift**.
-> *Confirmed: no regular-hours-target control in the pay policy today* (§10, `regularHoursDuration`).
+> ~~*Confirmed: no regular-hours-target control in the pay policy today* (§10, `regularHoursDuration`).~~
+> **Corrected 2026-07-23: daily & weekly regular-hours targets (and daily/weekly OT thresholds) ARE
+> supported — see the owner-correction callout after §1.**
 >
 > **⚠ Weekly overtime — now in delivery (per Assaf, 2026-07-18).** A **weekly OT trigger** (OT on hours
 > beyond a weekly threshold, accumulated over a configurable week window) is being **built as a

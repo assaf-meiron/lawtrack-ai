@@ -19,11 +19,36 @@ from ingest import upload_pdf
 from mapping import map_findings
 
 # In a real build this comes from context/worldwide-calculations/<jurisdiction>.md.
+# Keyed by 2-letter jurisdiction prefix; get_statute_note() normalizes full names + golden codes.
 STATUTE_NOTES = {
-    "brazil": "Brazil CLT floor: daily OT >= +50% (Sunday/holiday dobra +100%); adicional noturno "
-              ">= 20% with a reduced 52'30\" night hour; 11h interjornada; first-class DSR. CCTs may "
-              "legally derogate — flag divergences as conflict (warn, never block).",
+    "br": "Brazil CLT floor: daily OT >= +50% (Sunday/holiday dobra +100%); adicional noturno "
+          ">= 20% with a reduced 52'30\" night hour; 11h interjornada; first-class DSR. CCTs may "
+          "legally derogate upward — flag ONLY sub-floor divergences as conflict (warn, never block).",
+    "de": "Germany floor (ArbZG): 8h/day ordinary (up to 10h with compensation window), 11h daily "
+          "rest, Sunday/holiday work restricted; premiums are set by Tarifvertrag, not by statute. "
+          "Flag ONLY a clause that falls below this floor as conflict; a clause that meets or exceeds "
+          "it is match/adjust, never conflict.",
+    "au": "Australia floor (Fair Work Act / NES): 38h ordinary week; rest breaks, overtime and "
+          "penalty rates are set by the applicable Modern Award or Enterprise Agreement — there is no "
+          "single statutory night/OT percentage. Flag ONLY a clear breach of the NES as conflict.",
 }
+
+_JUR_ALIAS = {"brazil": "br", "germany": "de", "australia": "au"}
+
+
+def get_statute_note(jurisdiction: str) -> str:
+    """Resolve a statutory-floor note from a CLI name ('germany') or golden code ('DE', 'US-OR').
+
+    When no floor is loaded for the jurisdiction, return an explicit no-floor instruction so the
+    mapping stage does NOT invent a conflict against a floor it cannot see.
+    """
+    key = (jurisdiction or "").strip().lower()
+    key = _JUR_ALIAS.get(key, key[:2])
+    return STATUTE_NOTES.get(
+        key,
+        f"(no statutory floor note loaded for '{jurisdiction}'. Do NOT infer or assume a floor — "
+        f"classify these findings as match/adjust/gap only, never conflict.)",
+    )
 
 
 def main() -> int:
@@ -34,11 +59,14 @@ def main() -> int:
     ap.add_argument("--out", help="Write the change cards to this JSON file.")
     args = ap.parse_args()
 
-    policy_json = "{}  (no policy supplied — author mode: every relevant clause is new)"
+    policy_json = ("{}  (no policy configured yet — author mode: there is no baseline value for ANY "
+                   "capability. Treat each supported capability as a field to configure from scratch → "
+                   "adjust; reserve gap for rules the engine cannot represent at all, never for a "
+                   "merely-unset field.)")
     if args.policy:
         with open(args.policy) as fh:
             policy_json = fh.read()
-    statute_note = STATUTE_NOTES.get(args.jurisdiction, f"(no statutory note loaded for {args.jurisdiction})")
+    statute_note = get_statute_note(args.jurisdiction)
 
     client = config.get_client()
 

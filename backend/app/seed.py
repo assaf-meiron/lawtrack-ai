@@ -41,6 +41,7 @@ def m(t: str, c: str) -> dict:
 
 # Pay policies — the comparison target (prototype POLICIES).
 POLICIES = [
+    {"id": "ref-base", "flag": "\U0001F310", "name": "Reference — day.io Sample (Policy Learning)", "sub": "from pay-policy-configuration.md"},
     {"id": "br-retail", "flag": "\U0001F1E7\U0001F1F7", "name": "Brazil — Retail Standard", "sub": "CCT Comércio SP"},
     {"id": "br-botic", "flag": "\U0001F1E7\U0001F1F7", "name": "Brazil — Boticário Franchises", "sub": "Franquias"},
     {"id": "br-log", "flag": "\U0001F1E7\U0001F1F7", "name": "Brazil — Logistics", "sub": "Transporte SP"},
@@ -53,6 +54,16 @@ POLICIES = [
 # "current" side of each finding). Structured six-tab shape (app/pay_policy_schema.py): each field is
 # keyed by its 17-taxonomy capability code under the pay-policy tab a reviewer edits.
 POLICY_CONFIG = {
+    "ref-base": {
+        "Paid Overtime": {
+            "OT/d": "Rate rows 50% / 100% (Specific days · Percentage)",
+            "BH": "ON · 2-month compensation cycle · missing days: reduce from bank + mark · positive/negative balance at expiry: do nothing (keep as expired)",
+        },
+        "Hours Distribution": {"Not": "20% · window 22:00-05:00 · shift starting in-window counts entirely as night"},
+        "Tolerance": {"Tol": "10 min · per punch"},
+        "On Call": {"OnCall": "Follow pay policies"},
+        "Special Rules": {"Inter": "11h minimum inter-shift rest"},
+    },
     "br-retail": {
         "Paid Overtime": {"OT/d": "+50% first 2h / +70% after", "BH": "12-month compensation window", "Sun/Hol": "+50%"},
         "Hours Distribution": {"Not": "+20%"},
@@ -81,6 +92,110 @@ POLICY_CONFIG = {
         "Special Rules": {"Inter": "11h daily rest", "Abono": "36 vacation days"},
     },
 }
+
+# A fully-configured pay policy — every capability across all six tabs set (from
+# pay-policy-configuration.md). Used by the "Reference — Full Configuration" layer so the pay-policy
+# view shows a complete config, not a thin one.
+FULL_CONFIG = {
+    "Paid Overtime": {
+        "Jorn": "44h/week · 8h/day standard; daily & weekly OT thresholds set",
+        "OT/d": "Specific days · Percentage; +50% first 2h → +100% after; day/night split off",
+        "OT wk/mo": "weekly OT beyond 44h at +50%",
+        "BH": "ON · 2-month cycle · reset cyclically (3 cycles before reset) · missing days: reduce from bank + mark · hide summary: off",
+        "BH->pay": "positive balance at expiry → convert to Extra Hours (with multiplier); negative → carry forward",
+        "Sun/Hol": "Sunday & holidays worked → +100% (dobra)",
+        "Sun-rot": "rest-day rotation; a Sunday folga at least every 3 weeks",
+    },
+    "Hours Distribution": {
+        "Not": "adicional noturno +20% · window 22:00–05:00 · shift starting in-window counts entirely as night",
+        "Not-prg": "night premium extends to the full range after the night window (prorrogação, Súmula 60 II)",
+        "Not-red": "hora noturna reduzida — 52'30\" counts as 60'",
+    },
+    "Tolerance": {
+        "Tol": "5 min per punch · 10 min daily · per punch · breaks excluded",
+    },
+    "On Call": {
+        "OnCall": "Follow pay policies · availability and activation paid separately",
+    },
+    "Special Rules": {
+        "Intra": "intrajornada 1h meal break (shifts > 6h); partial suppression → indemnify suppressed portion +50%",
+        "Inter": "interjornada 11h minimum rest between shifts",
+        "12x36": "12×36 shift scale enabled",
+        "Sem-esp": "semana espanhola — Saturday suppression enabled",
+        "Abono": "faltas abonadas — conditional paid-absence triggers configured",
+    },
+}
+
+_FLAG = {"US": "\U0001F1FA\U0001F1F8", "FR": "\U0001F1EB\U0001F1F7", "AU": "\U0001F1E6\U0001F1FA",
+         "DE": "\U0001F1E9\U0001F1EA", "BR": "\U0001F1E7\U0001F1F7", "CA": "\U0001F1E8\U0001F1E6",
+         "IN": "\U0001F1EE\U0001F1F3", "ES": "\U0001F1EA\U0001F1F8", "MX": "\U0001F1F2\U0001F1FD"}
+
+
+def _synthetic_layers() -> list[dict]:
+    """Generate demo layers so the Layers tab can be exercised at scale: 5 countries, 15
+    states/provinces (worldwide), 5 US CBAs, 5 AU Awards, 5 FR CCNs, plus one fully-configured
+    reference layer. Configs are light (a couple of capabilities) except the full one."""
+    out: list[dict] = []
+
+    def add(key, name, jur, layer_type, subtitle, config):
+        cc = jur.split("-")[0]
+        out.append(dict(key=key, name=name, flag=_FLAG.get(cc, "\U0001F3F3️"), jurisdiction=jur,
+                        layer_type=layer_type, subtitle=subtitle, config=config))
+
+    # 5 country baselines (statutory floor)
+    for code, name in [("US", "United States — Federal (FLSA)"), ("FR", "France — Code du travail"),
+                       ("AU", "Australia — National Employment Standards"),
+                       ("CA", "Canada — Canada Labour Code"), ("IN", "India — Central labour codes")]:
+        add(f"ctry-{code.lower()}", name, code, LayerType.country, "Statutory floor",
+            {"Paid Overtime": {"OT/d": "statutory minimum overtime premium"}})
+
+    # 15 states/provinces from all over the world
+    states = [("US-CA", "California"), ("US-NY", "New York"), ("US-TX", "Texas"),
+              ("CA-ON", "Ontario"), ("CA-QC", "Québec"), ("CA-BC", "British Columbia"),
+              ("AU-NSW", "New South Wales"), ("AU-VIC", "Victoria"),
+              ("DE-NRW", "North Rhine-Westphalia"), ("DE-BY", "Bavaria"),
+              ("BR-SP", "São Paulo"), ("BR-RJ", "Rio de Janeiro"),
+              ("IN-MH", "Maharashtra"), ("IN-KA", "Karnataka"), ("ES-MD", "Madrid")]
+    for code, name in states:
+        add(f"state-{code.lower()}", f"{name} — state/provincial rules", code, LayerType.state,
+            f"{code} · {name}", {"Hours Distribution": {"Not": "state night premium"}})
+
+    # 5 US CBAs
+    for i, (nm, sub) in enumerate([
+        ("UAW–Ford Master Agreement", "Automotive · US-MI"),
+        ("Teamsters National Master Freight", "Freight · US"),
+        ("SEIU-UHW Healthcare", "Healthcare · US-CA"),
+        ("IBEW Local 3", "Electrical · US-NY"),
+        ("IATSE Basic Agreement", "Film/TV · US-CA")]):
+        add(f"us-cba-{i+1}", nm, "US", LayerType.cba, sub,
+            {"Paid Overtime": {"OT/d": "+50% after 8h/day", "Sun/Hol": "+100% holidays"}})
+
+    # 5 AU Awards (Australia's CBA family)
+    for i, (nm, sub) in enumerate([
+        ("Nurses Award 2020 (MA000034)", "Health · AU"),
+        ("General Retail Industry Award (MA000004)", "Retail · AU"),
+        ("Hospitality (General) Award (MA000009)", "Hospitality · AU"),
+        ("Clerks—Private Sector Award (MA000002)", "Clerical · AU"),
+        ("Building & Construction Award (MA000020)", "Construction · AU")]):
+        add(f"au-award-{i+1}", nm, "AU", LayerType.cba, sub,
+            {"Paid Overtime": {"OT/d": "150% first 2–3h then 200%", "Sun/Hol": "Sat 150% · Sun 200%"}})
+
+    # 5 FR CCNs (France's CBA family)
+    for i, (nm, sub) in enumerate([
+        ("Syntec (IDCC 1486)", "Consulting/IT · FR"),
+        ("Métallurgie (IDCC 3248)", "Metallurgy · FR"),
+        ("HCR — Hôtels Cafés Restaurants (IDCC 1979)", "Hospitality · FR"),
+        ("Bâtiment (IDCC 1596)", "Construction · FR"),
+        ("Transport routier (IDCC 16)", "Transport · FR")]):
+        add(f"fr-ccn-{i+1}", nm, "FR", LayerType.cba, sub,
+            {"Paid Overtime": {"OT/d": "+25% first 8h then +50%"}, "Special Rules": {"Inter": "11h rest"}})
+
+    # the fully-configured reference layer (every capability across all six tabs)
+    out.append(dict(key="ref-full", name="Reference — Full Configuration (all tabs)", flag="\U0001F310",
+                    jurisdiction="—", layer_type=LayerType.company,
+                    subtitle="every capability set — from pay-policy-configuration.md", config=FULL_CONFIG))
+    return out
+
 
 # Initial status per document (prototype `statuses` map).
 STATUSES = {
@@ -494,9 +609,10 @@ DOCS = {
 
 # --- transcription lookups ---------------------------------------------------
 
-_PREFIX_CODE = {"br": "BR", "fr": "FR", "mx": "MX", "de": "DE"}
-# most seeded policies are collective agreements; the Mexico baseline is a federal (country) layer
-_LAYER_TYPE = {"mx-retail": LayerType.country}
+_PREFIX_CODE = {"ref": "—", "br": "BR", "fr": "FR", "mx": "MX", "de": "DE"}
+# most seeded policies are collective agreements; the Mexico baseline is a federal (country) layer;
+# ref-base is the generic reference policy built from pay-policy-configuration.md
+_LAYER_TYPE = {"mx-retail": LayerType.country, "ref-base": LayerType.company}
 _COUNTRY_CODE = {"Brazil": "BR", "France": "FR", "Mexico": "MX", "Germany": "DE"}
 _DOC_TYPE = {
     "CCT": DocType.cct, "ACT": DocType.act, "CBA": DocType.cba,
@@ -728,6 +844,14 @@ def seed_if_empty(db, log) -> None:
         )
         db.add(policy)
         policies_by_key[p["id"]] = policy
+
+    # synthetic demo layers (scale test for the Layers tab) — no documents attached
+    for s in _synthetic_layers():
+        db.add(PayPolicy(
+            key=s["key"], name=s["name"], flag=s["flag"], subtitle=s["subtitle"],
+            jurisdiction=s["jurisdiction"], layer_type=s["layer_type"], config=s["config"],
+        ))
+
     db.flush()  # assign policy ids for the FK
 
     n_docs = n_findings = n_rules = 0

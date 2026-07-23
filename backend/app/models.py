@@ -87,9 +87,10 @@ class LayerType(str, enum.Enum):
 
 class Classification(str, enum.Enum):
     match = "match"        # 🟢 CBA rule already == policy
-    adjust = "adjust"      # 🟡 existing field, different value
+    adjust = "adjust"      # 🟡 a configuration recommendation (parameter + value)
     gap = "gap"            # 🔴 no home in policy/schema
     conflict = "conflict"  # 🟣 diverges from a statutory floor/ceiling
+    flag = "flag"          # 🚩 ambiguous / needs human review — no confident value proposed
 
 
 class Confidence(str, enum.Enum):
@@ -103,6 +104,7 @@ class ReviewStatus(str, enum.Enum):
     approved = "approved"
     corrected = "corrected"
     rejected = "rejected"
+    unsure = "unsure"      # reviewer parked it as a question — not a final decision
 
 
 def _uuid() -> uuid.UUID:
@@ -210,6 +212,9 @@ class Document(Base):
     cba_name: Mapped[str | None] = mapped_column(String(255), default=None)
     doc_type: Mapped[DocType] = mapped_column(SAEnum(DocType), default=DocType.cct)
     title: Mapped[str] = mapped_column(String(512))
+    # True while the title is still auto-derived (filename, then AI); flips to False once a human
+    # renames the document, so re-analysis never clobbers a name the reviewer chose.
+    title_auto: Mapped[bool] = mapped_column(Boolean, default=True)
     subtitle: Mapped[str | None] = mapped_column(String(512), default=None)
     source: Mapped[str | None] = mapped_column(String(512), default=None)
     effective_from: Mapped[date | None] = mapped_column(Date, default=None)
@@ -277,6 +282,8 @@ class Finding(Base):
     reviewer: Mapped[str | None] = mapped_column(String(255), default=None)          # stable username (audit id)
     reviewer_name: Mapped[str | None] = mapped_column(String(255), default=None)     # human display name
     review_notes: Mapped[str | None] = mapped_column(Text, default=None)
+    # reviewer<->assistant conversation about this finding: [{role, content}, ...]
+    chat_messages: Mapped[list | None] = mapped_column(JSON, default=None)
     final_value: Mapped[str | None] = mapped_column(String(512), default=None)  # human correction
     committed_version: Mapped[int | None] = mapped_column(Integer, default=None)  # layer version this landed in
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)

@@ -14,12 +14,17 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from .. import pipeline_adapter
 from ..db import get_db
 from ..models import ConfigValue, DocStatus, Finding, ReviewStatus, Rule, User
-from ..schemas import FindingOut, ReviewAction
+from ..schemas import FindingChatRequest, FindingChatResponse, FindingOut, ReviewAction
 from ..security import get_current_user
 
 router = APIRouter(prefix="/api", tags=["review"])
+
+# Decisions that resolve a finding (vs. `unsure`, which parks it as an open question and keeps
+# the document in review).
+RESOLVED_STATUSES = {ReviewStatus.approved, ReviewStatus.corrected, ReviewStatus.rejected}
 
 
 @router.post("/findings/{finding_id}/review", response_model=FindingOut)
@@ -34,8 +39,8 @@ def review_finding(
         raise HTTPException(404, "finding not found")
 
     action = (body.action or "").lower()
-    if action not in {"approve", "correct", "reject"}:
-        raise HTTPException(400, "action must be approve | correct | reject")
+    if action not in {"approve", "correct", "reject", "unsure"}:
+        raise HTTPException(400, "action must be approve | correct | reject | unsure")
 
     f.reviewer = user.username
     f.reviewer_name = user.display_name or user.username
@@ -46,6 +51,16 @@ def review_finding(
     if f.rule:
         db.delete(f.rule)
         db.flush()
+
+    if action == "unsure":
+        # Park it as an open question (the question text lives in review_notes); no Rule is
+        # materialized and the document stays in review until it's actually resolved.
+        f.review_status = ReviewStatus.unsure
+        f.final_value = None
+        _update_document_status(f)
+        db.commit()
+        db.refresh(f)
+        return f
 
     if action == "reject":
         f.review_status = ReviewStatus.rejected
@@ -102,10 +117,41 @@ def _update_document_status(f: Finding) -> None:
     if doc is None:
         return
     total = len(doc.findings)
-    decided = sum(1 for x in doc.findings if x.review_status != ReviewStatus.proposed)
-    if decided == 0:
+    touched = sum(1 for x in doc.findings if x.review_status != ReviewStatus.proposed)
+    resolved = sum(1 for x in doc.findings if x.review_status in RESOLVED_STATUSES)
+    if touched == 0:
         doc.status = DocStatus.analyzed
-    elif decided < total:
-        doc.status = DocStatus.in_review
-    else:
+    elif resolved == total:
         doc.status = DocStatus.reviewed
+    else:
+        # some decided and/or some parked as `unsure` — still in review
+        doc.status = DocStatus.in_review
+
+
+@router.post("/findings/{finding_id}/chat", response_model=FindingChatResponse)
+def chat_about_finding(
+    finding_id: uuid.UUID,
+    body: FindingChatRequest,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    """Discuss a single finding with the assistant. The conversation is persisted on the finding
+    and fed back on each turn, so the reviewer's input is carried as context. The assistant may
+    return a `suggestion` when the discussion warrants revising the proposal."""
+    f = db.get(Finding, finding_id)
+    if not f:
+        raise HTTPException(404, "finding not found")
+    message = (body.message or "").strip()
+    if not message:
+        raise HTTPException(400, "message cannot be empty")
+
+    history = list(f.chat_messages or [])
+    reply, suggestion = pipeline_adapter.chat_about_finding(f, history, message)
+
+    history.append({"role": "user", "content": message})
+    history.append({"role": "assistant", "content": reply})
+    f.chat_messages = history
+    # JSON column reassigned to a new list → the ORM detects the change
+    db.commit()
+    db.refresh(f)
+    return FindingChatResponse(reply=reply, chat_messages=history, suggestion=suggestion)

@@ -80,6 +80,11 @@ def _ui_tab(code: str | None, taxonomy_tab: str | None) -> str:
     return "Special Rules"
 
 
+def tab_for(code: str | None, taxonomy_tab: str | None = None) -> str:
+    """Public resolver: the pay-policy tab a capability code / finding belongs to."""
+    return _ui_tab(code, taxonomy_tab)
+
+
 def empty_config() -> dict[str, dict[str, Any]]:
     """A blank structured config — every tab present, no fields set."""
     return {tab: {} for tab in TABS}

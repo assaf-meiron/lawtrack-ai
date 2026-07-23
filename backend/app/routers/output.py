@@ -85,6 +85,78 @@ def _accepted_findings(doc: Document) -> list[Finding]:
     ]
 
 
+def _finding_value(f: Finding) -> str:
+    """The value a finding proposes for its config field (human correction wins)."""
+    return f.final_value or f.proposed_value or f.current_value or ""
+
+
+@router.get("/documents/{document_id}/config-diff")
+def config_diff(document_id: uuid.UUID, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    """Show the pay policy and how this document changes it: the layer's CURRENT structured config,
+    the PROPOSED config (current + every accepted/edited finding applied), and a per-field diff — each
+    changed field traced to the finding + cited clause. 🔴 Gaps (no config home) are listed separately.
+    """
+    doc = _load_doc(db, document_id)
+    policy = doc.policy
+    base = policy.config if policy else {}
+    current = pay_policy_schema.normalize(base)
+    proposed = pay_policy_schema.normalize(base)
+
+    diff = []
+    gaps = []
+    for f in doc.findings:
+        code = f.capability_code or f.clause_family
+        tab = pay_policy_schema.tab_for(code, f.policy_tab)
+        if f.classification == Classification.gap:
+            # no home in the pay policy — surfaced here + captured in the gap file at finalize
+            gaps.append({
+                "capability": code, "title": f.title, "rule_summary": f.rule_summary,
+                "classification": f.classification.value, "review_status": f.review_status.value,
+                "finding_id": str(f.id), "source_quote": f.source_quote, "page": f.page,
+                "clause_ref": f.clause_ref,
+            })
+            continue
+        applied = f.review_status in (ReviewStatus.approved, ReviewStatus.corrected)
+        new_value = _finding_value(f)
+        cur_value = current.get(tab, {}).get(code)
+        if cur_value is None:
+            cur_value = f.current_value
+        if applied:
+            pay_policy_schema.set_field(proposed, code, new_value, taxonomy_tab=f.policy_tab)
+        diff.append({
+            "tab": tab,
+            "code": code,
+            "label": pay_policy_schema.label_for(code),
+            "current": cur_value,
+            "proposed": new_value,
+            "changed": str(cur_value or "") != str(new_value or ""),
+            "applied": applied,                       # in proposed_config (accepted/edited) vs still pending
+            "classification": f.classification.value,
+            "review_status": f.review_status.value,
+            "finding_id": str(f.id),
+            "clause_ref": f.clause_ref,
+            "source_quote": f.source_quote,
+            "page": f.page,
+        })
+
+    return {
+        "document": {
+            "id": str(doc.id), "title": doc.title, "doc_type": doc.doc_type.value,
+            "status": doc.status.value,
+        },
+        "policy": {
+            "id": str(policy.id), "name": policy.name, "version": policy.version,
+        } if policy else None,
+        "tabs": pay_policy_schema.TABS,
+        "current_config": current,
+        "proposed_config": proposed,
+        "diff": diff,
+        "gaps": gaps,
+        "change_count": sum(1 for d in diff if d["applied"] and d["changed"]),
+        "gap_count": len(gaps),
+    }
+
+
 @router.get("/documents/{document_id}/change-set.json")
 def change_set_json(document_id: uuid.UUID, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
     """The applyable diff: verified findings materialized as Rule ⊕ ConfigValue."""

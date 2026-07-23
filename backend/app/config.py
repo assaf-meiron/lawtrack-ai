@@ -5,6 +5,7 @@ fires if it hasn't been overridden. Set LAWTRACK_JWT_SECRET in any real deployme
 """
 from __future__ import annotations
 
+import os
 from functools import lru_cache
 from pathlib import Path
 
@@ -15,6 +16,30 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 DEV_JWT_SECRET = "dev-insecure-change-me"
+
+
+def _load_env_file(path: Path) -> None:
+    """Load KEY=VALUE lines from a gitignored .env into os.environ (never overriding existing vars).
+
+    Lets secrets the SDK reads directly — notably ANTHROPIC_API_KEY — live in `backend/.env` instead of
+    the process launch command. python-dotenv isn't a dependency, so this is a minimal hand-rolled parse.
+    """
+    if not path.exists():
+        return
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, val = line.partition("=")
+        key = key.strip()
+        val = val.strip().strip('"').strip("'")
+        if key and val:  # skip empty values so a blank placeholder doesn't set an empty env var
+            os.environ.setdefault(key, val)
+
+
+# Load backend/.env early so ANTHROPIC_API_KEY (and any LAWTRACK_* overrides) are available before the
+# Settings below read the environment and before the Anthropic client is constructed at analyze time.
+_load_env_file(REPO_ROOT / "backend" / ".env")
 
 
 class Settings(BaseSettings):
@@ -28,6 +53,10 @@ class Settings(BaseSettings):
     jwt_secret: str = Field(default=DEV_JWT_SECRET)
     jwt_algorithm: str = Field(default="HS256")
     access_token_expire_minutes: int = Field(default=720)  # 12h
+
+    # a shared secret required to delete a document (a lightweight owner-only gate).
+    # Default works out of the box; override via LAWTRACK_DELETE_PASSWORD for real security.
+    delete_password: str = Field(default="Liranos")
 
     # CORS (frontend origins)
     cors_origins: list[str] = Field(

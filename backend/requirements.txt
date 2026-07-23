@@ -9,3 +9,4 @@ anthropic>=0.69
 pyjwt>=2.8
 bcrypt>=4.1
 pdfplumber>=0.11
+pymupdf>=1.24

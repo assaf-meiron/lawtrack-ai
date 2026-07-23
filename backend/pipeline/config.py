@@ -9,14 +9,16 @@ from __future__ import annotations
 import os
 import sys
 
-MODEL_MAP = "claude-opus-4-8"      # ③ mapping — correctness matters most
-MODEL_EXTRACT = "claude-sonnet-5"  # ② extraction — near-commodity, volume
-MODEL_TRIAGE = "claude-haiku-4-5"  # (Phase 2) cheap "did T&A materially change?"
+MODEL_MAP = "claude-opus-4-8"        # ③ mapping — correctness matters most
+MODEL_EXTRACT = "claude-sonnet-5"    # ② extraction — near-commodity, volume
+MODEL_TRANSCRIBE = "claude-sonnet-5" # ②b transcription — vision read of scanned/image-only pages
+MODEL_TRIAGE = "claude-haiku-4-5"    # (Phase 2) cheap "did T&A materially change?"
 
 FILES_BETA = "files-api-2025-04-14"
 
-MAX_TOKENS_EXTRACT = 8000
-MAX_TOKENS_MAP = 16000
+MAX_TOKENS_EXTRACT = 16000  # a clause-dense doc emits many record_finding calls; 8000 truncated mid-call
+MAX_TOKENS_MAP = 50000  # large finding batches (45+ findings) need streaming; 16000 truncated mid-json
+MAX_TOKENS_TRANSCRIBE = 64000  # a full scanned-doc transcription is long → stream it (avoids HTTP timeout)
 
 
 def get_client():

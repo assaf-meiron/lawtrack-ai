@@ -17,7 +17,10 @@ def test_finalize_commits_a_layer_version(authed, dataset_multi):
     assert detail["version"] == 1
     assert len(detail["versions"]) == 1
     assert detail["versions"][0]["change_count"] == 2
-    assert "OT rate" in detail["config"]
+    # config is the structured six-tab object; the two 'overtime'/'A · Paid Overtime' findings land
+    # under the "Paid Overtime" tab (keyed by capability_code, falling back to clause_family).
+    assert "Paid Overtime" in detail["config"]
+    assert detail["config"]["Paid Overtime"], "expected the committed value under Paid Overtime"
     assert len(detail["editions"]) == 1
 
 
