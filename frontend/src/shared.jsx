@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   AlertCircle,
   SlidersHorizontal,
+  Flag,
   Loader2,
   CheckCircle,
   Activity,
@@ -17,7 +18,7 @@ export const T = {
 };
 
 /* The only saturated color in the product — the change taxonomy, keyed by the
-   backend `classification` enum (match | adjust | gap | conflict). */
+   backend `classification` enum (match | adjust | gap | conflict | flag). */
 export const CLASS = {
   match: {
     label: "Aligned", cardLabel: "Aligned — no action", Icon: CheckCircle2,
@@ -39,8 +40,46 @@ export const CLASS = {
     dot: "#dc2626", chipBg: "bg-red-50", chipBorder: "border-red-200", text: "text-red-700",
     markBg: "#fee2e2", markLine: "#ef4444", ring: "#ef4444", pinBg: "#dc2626",
   },
+  flag: {
+    label: "Flag", cardLabel: "Flag — needs review", Icon: Flag,
+    dot: "#7c3aed", chipBg: "bg-violet-50", chipBorder: "border-violet-200", text: "text-violet-700",
+    markBg: "#ede9fe", markLine: "#8b5cf6", ring: "#8b5cf6", pinBg: "#7c3aed",
+  },
 };
-export const CLASS_ORDER = ["conflict", "gap", "adjust", "match"];
+export const CLASS_ORDER = ["conflict", "flag", "gap", "adjust", "match"];
+
+/* Layer (pay-policy) types — a short badge label + the fuller name used in the upload/tree UIs. */
+export const LAYER_TYPE_META = {
+  cba: { label: "CBA", full: "Collective agreement" },
+  company: { label: "Company", full: "Company" },
+  state: { label: "State", full: "State / region" },
+  country: { label: "Country", full: "Country / federal" },
+};
+
+/* A small neutral type badge + the layer name. When there's no policy, it's author mode. */
+export function LayerChip({ policy, className = "" }) {
+  if (!policy) {
+    return (
+      <span className={`inline-flex items-center gap-1.5 min-w-0 ${className}`}>
+        <span className="uppercase tracking-wide rounded px-1.5 py-0.5 shrink-0"
+          style={{ fontSize: 9, background: "#f3f2ef", color: T.faint, border: `1px solid ${T.line}` }}>
+          No layer
+        </span>
+        <span className="truncate" style={{ color: T.faint }}>author mode</span>
+      </span>
+    );
+  }
+  const meta = LAYER_TYPE_META[policy.layer_type];
+  return (
+    <span className={`inline-flex items-center gap-1.5 min-w-0 ${className}`} title={meta?.full || policy.layer_type}>
+      <span className="uppercase tracking-wide rounded px-1.5 py-0.5 shrink-0"
+        style={{ fontSize: 9, background: "#eef2ff", color: "#4f46e5", border: "1px solid #e0e7ff" }}>
+        {meta?.label || (policy.layer_type || "Layer")}
+      </span>
+      <span className="truncate" style={{ color: T.ink2 }}>{policy.name}</span>
+    </span>
+  );
+}
 
 export function confidenceMeta(level) {
   if (level === "high") return { label: "High confidence", color: "#059669" };
@@ -50,9 +89,9 @@ export function confidenceMeta(level) {
 
 /* Count a document's findings by classification. */
 export function counts(findings) {
-  const c = { total: findings.length, conflict: 0, gap: 0, adjust: 0, match: 0 };
-  findings.forEach((f) => (c[f.classification] += 1));
-  c.action = c.conflict + c.gap + c.adjust;
+  const c = { total: findings.length, conflict: 0, flag: 0, gap: 0, adjust: 0, match: 0 };
+  findings.forEach((f) => { if (c[f.classification] !== undefined) c[f.classification] += 1; });
+  c.action = c.conflict + c.flag + c.gap + c.adjust;
   return c;
 }
 

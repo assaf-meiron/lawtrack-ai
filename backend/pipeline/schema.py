@@ -28,9 +28,10 @@ class ClauseFamily(str, Enum):
 
 class Classification(str, Enum):
     match = "match"        # 🟢 CBA rule already == policy
-    adjust = "adjust"      # 🟡 existing field, different value
+    adjust = "adjust"      # 🟡 a configuration recommendation (parameter + value)
     gap = "gap"            # 🔴 no home in policy/schema
     conflict = "conflict"  # 🟣 diverges from a statutory floor/ceiling
+    flag = "flag"          # 🚩 ambiguous / needs human review — no confident value proposed
 
 
 class Confidence(str, Enum):
@@ -58,8 +59,10 @@ class RawFinding(BaseModel):
 class MappedFinding(BaseModel):
     """Mapping output (③): a RawFinding classified against policy + statute."""
     clause_family: ClauseFamily
-    capability_code: CapabilityCode = Field(
-        description="Exactly one of the 17 taxonomy codes (the eval/mapping key), e.g. 'OT/d', 'Sun/Hol'."
+    capability_code: Optional[CapabilityCode] = Field(
+        default=None,
+        description="Left unset in config-recommendation mode; reserved for later reconnection to "
+                    "the tenant's own capability taxonomy.",
     )
     source_quote: str
     page: int
@@ -76,6 +79,15 @@ class MappedFinding(BaseModel):
 
 class MappingResult(BaseModel):
     """Structured-output wrapper for one mapping call over a batch of raw findings."""
+    document_title: Optional[str] = Field(
+        default=None,
+        description="The document's official name (e.g. the instrument's formal title as printed), "
+                    "not the file name. Concise, in the source language. Null if not determinable.",
+    )
+    document_subtitle: Optional[str] = Field(
+        default=None,
+        description="Optional short qualifier: parties, sector, and/or effective period.",
+    )
     findings: list[MappedFinding]
 
 
@@ -98,5 +110,6 @@ class ChangeCard(BaseModel):
             Classification.adjust: CardKind.change,
             Classification.gap: CardKind.change,
             Classification.conflict: CardKind.warning,
+            Classification.flag: CardKind.warning,
         }[f.classification]
         return cls(kind=kind, finding=f)

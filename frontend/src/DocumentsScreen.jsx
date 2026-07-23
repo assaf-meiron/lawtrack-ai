@@ -1,10 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Upload, Building2, Layers, FileText, Gavel, FilePlus, Clock, Search,
-  Loader2, RefreshCw, Check,
+  Loader2, RefreshCw, Check, Trash2, LayoutGrid, List,
 } from "lucide-react";
 import * as api from "./api.js";
-import { T, CLASS, CLASS_ORDER, counts, countryFlag, StatusPill } from "./shared.jsx";
+import { T, CLASS, CLASS_ORDER, counts, countryFlag, StatusPill, LayerChip } from "./shared.jsx";
 import UploadModal from "./UploadModal.jsx";
 
 const KIND_ICON = { cct: FileText, cba: FileText, statute: Gavel, reform: FilePlus, policy: FileText, other: FileText };
@@ -13,6 +13,7 @@ export default function DocumentsScreen({ onOpen, fireToast }) {
   const [docs, setDocs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [groupBy, setGroupBy] = useState("country");
+  const [view, setView] = useState("cards"); // 'cards' | 'list'
   const [uploadOpen, setUploadOpen] = useState(false);
   const [error, setError] = useState(null);
   const pollRef = useRef(null);
@@ -53,6 +54,18 @@ export default function DocumentsScreen({ onOpen, fireToast }) {
     }
   }
 
+  async function remove(id, password) {
+    try {
+      await api.deleteDocument(id, password);
+      fireToast("Document deleted.");
+      setDocs((prev) => prev.filter((d) => d.id !== id));
+      return true;
+    } catch (e) {
+      fireToast(e.message, "error");
+      return false;
+    }
+  }
+
   const groups = useMemo(() => {
     const g = {};
     docs.forEach((d) => {
@@ -70,11 +83,12 @@ export default function DocumentsScreen({ onOpen, fireToast }) {
       {/* controls */}
       <div className="px-6 pt-6 pb-2 flex flex-wrap items-center gap-3 justify-between">
         <div className="flex items-center gap-3">
+          {/* view: cards vs detailed list */}
           <div className="inline-flex rounded-lg p-0.5" style={{ background: "#eceae5", border: `1px solid ${T.line}` }}>
-            {[{ v: "country", label: "By country", Icon: Building2 }, { v: "cba", label: "By CBA", Icon: Layers }].map((o) => {
-              const on = groupBy === o.v; const Icon = o.Icon;
+            {[{ v: "cards", label: "Cards", Icon: LayoutGrid }, { v: "list", label: "List", Icon: List }].map((o) => {
+              const on = view === o.v; const Icon = o.Icon;
               return (
-                <button key={o.v} onClick={() => setGroupBy(o.v)}
+                <button key={o.v} onClick={() => setView(o.v)}
                   className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors"
                   style={{ background: on ? "#fff" : "transparent", color: on ? T.ink : T.muted, boxShadow: on ? "0 1px 2px rgba(0,0,0,0.08)" : "none" }}>
                   <Icon size={14} /> {o.label}
@@ -82,6 +96,20 @@ export default function DocumentsScreen({ onOpen, fireToast }) {
               );
             })}
           </div>
+          {view === "cards" && (
+            <div className="inline-flex rounded-lg p-0.5" style={{ background: "#eceae5", border: `1px solid ${T.line}` }}>
+              {[{ v: "country", label: "By country", Icon: Building2 }, { v: "cba", label: "By CBA", Icon: Layers }].map((o) => {
+                const on = groupBy === o.v; const Icon = o.Icon;
+                return (
+                  <button key={o.v} onClick={() => setGroupBy(o.v)}
+                    className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors"
+                    style={{ background: on ? "#fff" : "transparent", color: on ? T.ink : T.muted, boxShadow: on ? "0 1px 2px rgba(0,0,0,0.08)" : "none" }}>
+                    <Icon size={14} /> {o.label}
+                  </button>
+                );
+              })}
+            </div>
+          )}
           <div className="text-xs" style={{ color: T.muted }}>
             <span className="font-semibold" style={{ color: T.ink }}>{docs.length}</span> documents ·{" "}
             <span className="font-semibold" style={{ color: T.ink }}>{readyCount}</span> ready ·{" "}
@@ -119,6 +147,10 @@ export default function DocumentsScreen({ onOpen, fireToast }) {
         <div className="mx-6 my-6 rounded-xl p-10 text-center text-sm" style={{ border: `1px dashed ${T.line2}`, color: T.faint }}>
           No documents yet. Upload a CBA or law PDF to get started.
         </div>
+      ) : view === "list" ? (
+        <div className="px-6 pb-16">
+          <DocTable docs={docs} onOpen={onOpen} onAnalyze={analyze} onDelete={remove} />
+        </div>
       ) : (
         <div className="px-6 pb-16">
           {groups.map(([label, ids]) => (
@@ -130,7 +162,7 @@ export default function DocumentsScreen({ onOpen, fireToast }) {
               </div>
               <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))" }}>
                 {ids.map((d) => (
-                  <DocCard key={d.id} doc={d} onOpen={onOpen} onAnalyze={analyze} />
+                  <DocCard key={d.id} doc={d} onOpen={onOpen} onAnalyze={analyze} onDelete={remove} />
                 ))}
               </div>
             </div>
@@ -149,13 +181,15 @@ export default function DocumentsScreen({ onOpen, fireToast }) {
   );
 }
 
-function DocCard({ doc, onOpen, onAnalyze }) {
+function DocCard({ doc, onOpen, onAnalyze, onDelete }) {
   const KindIcon = KIND_ICON[doc.doc_type] || FileText;
   const c = counts(doc.findings || []);
   const clickable = ["analyzed", "in_review", "reviewed"].includes(doc.status);
   const btnLabel = doc.status === "reviewed" ? "View" : doc.status === "in_review" ? "Continue" : "Review";
+  // Finalized (complete) documents are part of the audit trail — the backend blocks deleting them.
+  const deletable = doc.status !== "complete" && !doc.finalized_at;
   return (
-    <div className="rounded-xl overflow-hidden" style={{ background: T.panel, border: `1px solid ${T.line}`, boxShadow: "0 1px 3px rgba(0,0,0,0.05)", opacity: doc.status === "reviewed" ? 0.9 : 1 }}>
+    <div className="rounded-xl overflow-hidden" style={{ background: T.panel, border: `1px solid ${doc.status === "error" ? "#f0c9c9" : T.line}`, boxShadow: "0 1px 3px rgba(0,0,0,0.05)", opacity: doc.status === "reviewed" ? 0.9 : 1 }}>
       <div className="p-4 pb-3">
         <div className="flex items-start justify-between gap-2">
           <div className="flex items-start gap-2.5 min-w-0">
@@ -171,7 +205,10 @@ function DocCard({ doc, onOpen, onAnalyze }) {
               </div>
             </div>
           </div>
-          <StatusPill status={doc.status} />
+          <div className="flex items-center gap-1.5 shrink-0">
+            <StatusPill status={doc.status} />
+            {deletable && <DeleteControl doc={doc} onDelete={onDelete} />}
+          </div>
         </div>
         {doc.subtitle && <div className="mt-3 text-xs leading-relaxed" style={{ color: T.ink2 }}>{doc.subtitle}</div>}
         <div className="mt-2.5 flex items-center gap-1.5 text-xs" style={{ color: T.faint }}>
@@ -184,8 +221,8 @@ function DocCard({ doc, onOpen, onAnalyze }) {
 
       <div className="px-4 py-3 flex items-center justify-between gap-2" style={{ borderTop: `1px solid ${T.line}`, background: "#faf9f7" }}>
         <div className="min-w-0">
-          <div className="uppercase tracking-wider" style={{ fontSize: 9, color: T.faint }}>Compared to policy</div>
-          <div className="text-xs font-medium truncate" style={{ color: T.ink2 }}>{doc.policy?.name || "— (author mode)"}</div>
+          <div className="uppercase tracking-wider" style={{ fontSize: 9, color: T.faint }}>Layer</div>
+          <div className="text-xs font-medium truncate"><LayerChip policy={doc.policy} /></div>
         </div>
         {clickable ? (
           <div className="flex items-center gap-2 shrink-0">
@@ -232,5 +269,128 @@ function MiniCounts({ c }) {
         </span>
       ))}
     </div>
+  );
+}
+
+// full classification breakdown (conflict · gap · adjust · aligned), zeros dimmed — for the list view
+function FindingBreakdown({ findings }) {
+  const c = counts(findings || []);
+  return (
+    <div className="flex items-center gap-2.5">
+      {CLASS_ORDER.map((k) => (
+        <span key={k} title={CLASS[k].label} className="inline-flex items-center gap-1 text-xs" style={{ color: c[k] ? CLASS[k].dot : T.line2 }}>
+          <span className="inline-block rounded-full" style={{ width: 7, height: 7, background: c[k] ? CLASS[k].dot : T.line2 }} />{c[k]}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function fmtWhen(iso) {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
+// reusable password-gated delete: a trash button that opens a small confirm popover. Used by both views.
+function DeleteControl({ doc, onDelete }) {
+  const [open, setOpen] = useState(false);
+  const [pwd, setPwd] = useState("");
+  const [busy, setBusy] = useState(false);
+  async function go() {
+    setBusy(true);
+    const ok = await onDelete(doc.id, pwd);
+    setBusy(false);
+    if (ok) { setOpen(false); setPwd(""); }  // wrong password / error keeps the popover open
+  }
+  return (
+    <div className="relative">
+      <button onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }} title="Delete document"
+        className="rounded-md p-1 hover:bg-gray-100 transition-colors" style={{ color: open ? "#b91c1c" : T.faint }}>
+        <Trash2 size={14} />
+      </button>
+      {open && (
+        <div onClick={(e) => e.stopPropagation()} className="absolute right-0 mt-1 z-30 rounded-lg p-2.5 text-left"
+          style={{ background: "#fff", border: "1px solid #fecaca", boxShadow: "0 8px 24px rgba(0,0,0,0.14)", width: 236 }}>
+          <div className="text-xs mb-2" style={{ color: "#b91c1c" }}>Delete permanently? Enter the delete password.</div>
+          <input type="password" autoFocus value={pwd} onChange={(e) => setPwd(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter" && pwd) go(); }} placeholder="Delete password"
+            className="w-full rounded-md px-2 py-1 text-xs outline-none mb-2" style={{ border: `1px solid ${T.line2}`, color: T.ink, background: "#fff" }} />
+          <div className="flex items-center justify-end gap-1.5">
+            <button onClick={() => { setOpen(false); setPwd(""); }} className="rounded-md px-2 py-1 text-xs font-medium" style={{ border: `1px solid ${T.line2}`, color: T.ink2, background: "#fff" }}>Cancel</button>
+            <button onClick={go} disabled={!pwd || busy} className="rounded-md px-2 py-1 text-xs font-semibold text-white inline-flex items-center gap-1" style={{ background: "#b91c1c", opacity: !pwd || busy ? 0.6 : 1 }}>{busy && <Loader2 size={11} className="animate-spin" />}Delete</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// detailed list view: one row per document — status, layer, findings breakdown, last updated, actions
+function DocTable({ docs, onOpen, onAnalyze, onDelete }) {
+  const rows = [...docs].sort((a, b) => new Date(b.updated_at || b.created_at) - new Date(a.updated_at || a.created_at));
+  const HEAD = ["Document", "Status", "Layer", "Findings — conflict · gap · adjust · aligned", "Updated", ""];
+  return (
+    <div className="rounded-xl overflow-hidden" style={{ border: `1px solid ${T.line}`, background: "#fff" }}>
+      <div style={{ overflowX: "auto" }}>
+        <table className="w-full text-sm" style={{ borderCollapse: "collapse", minWidth: 860 }}>
+          <thead>
+            <tr style={{ background: "#faf9f7", borderBottom: `1px solid ${T.line}` }}>
+              {HEAD.map((h, i) => (
+                <th key={i} className="text-left uppercase tracking-wider px-3 py-2.5 font-semibold" style={{ fontSize: 9, color: T.faint }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((d) => <DocRow key={d.id} doc={d} onOpen={onOpen} onAnalyze={onAnalyze} onDelete={onDelete} />)}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function DocRow({ doc, onOpen, onAnalyze, onDelete }) {
+  const KindIcon = KIND_ICON[doc.doc_type] || FileText;
+  const clickable = ["analyzed", "in_review", "reviewed"].includes(doc.status);
+  const deletable = doc.status !== "complete" && !doc.finalized_at;
+  const btnLabel = doc.status === "reviewed" ? "View" : doc.status === "in_review" ? "Continue" : "Review";
+  return (
+    <tr style={{ borderBottom: `1px solid ${T.line}` }} className="hover:bg-gray-50">
+      <td className="px-3 py-2.5">
+        <div className="flex items-center gap-2 min-w-0">
+          <KindIcon size={15} color={T.ink2} className="shrink-0" />
+          <div className="min-w-0">
+            <div className="font-medium truncate" style={{ color: T.ink, maxWidth: 280 }}>{doc.title}</div>
+            <div className="text-xs" style={{ color: T.faint }}>
+              <span className="uppercase tracking-wide" style={{ fontSize: 9 }}>{doc.doc_type}</span> · {countryFlag(doc.jurisdiction)} {doc.jurisdiction}
+            </div>
+          </div>
+        </div>
+      </td>
+      <td className="px-3 py-2.5"><StatusPill status={doc.status} /></td>
+      <td className="px-3 py-2.5">
+        <div className="text-xs" style={{ maxWidth: 210 }}><LayerChip policy={doc.policy} /></div>
+      </td>
+      <td className="px-3 py-2.5">
+        {doc.status === "error" ? <span className="text-xs" style={{ color: T.faint }}>—</span> : <FindingBreakdown findings={doc.findings} />}
+      </td>
+      <td className="px-3 py-2.5"><span className="text-xs whitespace-nowrap" style={{ color: T.muted }}>{fmtWhen(doc.updated_at || doc.created_at)}</span></td>
+      <td className="px-3 py-2.5">
+        <div className="flex items-center justify-end gap-1.5">
+          {clickable ? (
+            <button onClick={() => onOpen(doc.id)} className="rounded-lg px-3 py-1.5 text-xs font-semibold active:scale-95 transition-transform"
+              style={doc.status === "reviewed" ? { background: "#fff", border: `1px solid ${T.line2}`, color: T.ink2 } : { background: T.ink, color: "#fff" }}>
+              {btnLabel}
+            </button>
+          ) : doc.status === "analyzing" ? (
+            <span className="inline-flex items-center gap-1 text-xs" style={{ color: T.muted }}><Loader2 size={13} className="animate-spin" /> …</span>
+          ) : (
+            <button onClick={() => onAnalyze(doc.id)} className="inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-semibold active:scale-95 transition-transform"
+              style={{ background: "#fff", border: `1px solid ${T.ink}`, color: T.ink }}><RefreshCw size={12} /> Analyze</button>
+          )}
+          {deletable && <DeleteControl doc={doc} onDelete={onDelete} />}
+        </div>
+      </td>
+    </tr>
   );
 }

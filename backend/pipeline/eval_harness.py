@@ -62,6 +62,35 @@ def load_golden(path: str) -> list[dict]:
     return data
 
 
+_VALID_CLASSIFICATIONS = {"match", "adjust", "gap", "conflict"}
+
+
+def validate_golden(golden: list[dict], base_dir: str = ".") -> list[str]:
+    """Return a list of problems with a golden set (empty == valid). Checks structure, that every
+    capability code is one of the 17, classifications are valid, and referenced PDFs exist."""
+    from taxonomy import CAPABILITY_CODES  # the single source of truth for valid codes
+    valid_codes = set(CAPABILITY_CODES)
+    problems: list[str] = []
+    seen = set()
+    for i, entry in enumerate(golden):
+        name = entry.get("instrument", f"#{i}")
+        if name in seen:
+            problems.append(f"{name}: duplicate instrument name")
+        seen.add(name)
+        expected = entry.get("expected", {})
+        if not expected and not entry.get("no_ta_content"):
+            problems.append(f"{name}: no expected labels (set \"no_ta_content\": true for an intentional negative control)")
+        for code, cls in expected.items():
+            if code not in valid_codes:
+                problems.append(f"{name}: unknown capability code '{code}'")
+            if cls not in _VALID_CLASSIFICATIONS:
+                problems.append(f"{name}: '{code}' has invalid classification '{cls}'")
+        pdf = entry.get("pdf")
+        if pdf and not os.path.exists(os.path.join(base_dir, pdf)) and not os.path.exists(pdf):
+            problems.append(f"{name}: PDF not found — {pdf}")
+    return problems
+
+
 def score_set(golden: list[dict], predictions: dict[str, dict[str, str]]) -> dict:
     """Score predictions (instrument -> {code: classification}) against the golden set."""
     per = {}
@@ -103,20 +132,28 @@ def run_predictions(golden: list[dict], policy_json: str, jurisdiction: str) -> 
     import extract
     import ingest
     import mapping
-    from run import STATUTE_NOTES  # reuse the CLI's statute-note map
+    from run import get_statute_note  # reuse the CLI's statute-note resolver
 
     client = config.get_client()
-    statute_note = STATUTE_NOTES.get(jurisdiction, f"(no statutory note loaded for {jurisdiction})")
     predictions: dict[str, dict[str, str]] = {}
     for entry in golden:
         name, pdf = entry["instrument"], entry.get("pdf")
         if not pdf or not os.path.exists(pdf):
             print(f"skip (no PDF): {name}", file=sys.stderr)
             continue
+        # per-instrument comparison baseline: a `policy` path on the entry overrides the global one
+        entry_policy = policy_json
+        pol_ref = entry.get("policy")
+        if pol_ref and pol_ref.endswith(".json") and os.path.exists(pol_ref):
+            with open(pol_ref, encoding="utf-8") as fh:
+                entry_policy = fh.read()
+        # per-instrument statutory floor: score each doc against ITS OWN jurisdiction, not one global
+        # key — a German Tarifvertrag must never be judged against the Brazilian CLT floor.
+        statute_note = get_statute_note(entry.get("jurisdiction") or jurisdiction)
         print(f"run: {name} <- {pdf}", file=sys.stderr)
         file_id = ingest.upload_pdf(client, pdf)
         raw = extract.extract_findings(client, file_id)
-        mapped = mapping.map_findings(client, raw, policy_json, statute_note)
+        mapped = mapping.map_findings(client, raw, entry_policy, statute_note)
         predictions[name] = reduce_findings_to_prediction(mapped.findings)
     return predictions
 
@@ -130,7 +167,25 @@ def main() -> int:
     ap.add_argument("--policy", help="Comparison pay-policy JSON (default: author mode / empty policy).")
     ap.add_argument("--jurisdiction", default="brazil", help="Statutory-floor jurisdiction key (default brazil).")
     ap.add_argument("--out", help="Write the produced/loaded predictions to this JSON path.")
+    ap.add_argument("--validate", action="store_true",
+                    help="Validate the golden set (codes, classifications, PDFs present) and report problems.")
     args = ap.parse_args()
+
+    if args.validate:
+        if not args.golden:
+            sys.exit("--validate requires --golden.")
+        golden = load_golden(args.golden)
+        base_dir = os.path.dirname(os.path.abspath(args.golden))
+        problems = validate_golden(golden, base_dir=os.path.dirname(base_dir))  # PDFs are pipeline-relative
+        if problems:
+            print(f"{len(problems)} problem(s):", file=sys.stderr)
+            for p in problems:
+                print(f"  - {p}")
+            return 1
+        codes = sorted({c for e in golden for c in e["expected"]})
+        print(f"OK — {len(golden)} instrument(s), {sum(len(e['expected']) for e in golden)} labels, "
+              f"codes covered: {', '.join(codes) or '(none)'}")
+        return 0
 
     if args.run:
         if not args.golden:

@@ -17,6 +17,17 @@ const LAYER_TYPES = [
   { v: "country", label: "Country / federal" },
 ];
 
+// Defined at module scope (NOT inside UploadModal) so its identity is stable across renders —
+// otherwise React remounts the subtree on every keystroke and inputs lose focus.
+function Field({ label, children }) {
+  return (
+    <div className="mt-4">
+      <div className="uppercase tracking-wider mb-1" style={{ fontSize: 9, color: T.faint }}>{label}</div>
+      {children}
+    </div>
+  );
+}
+
 export default function UploadModal({ onClose, onUploaded, fireToast }) {
   const [policies, setPolicies] = useState([]);
   const [mode, setMode] = useState("existing"); // 'existing' (renewal) | 'new'
@@ -71,13 +82,6 @@ export default function UploadModal({ onClose, onUploaded, fireToast }) {
       setBusy(false);
     }
   }
-
-  const Field = ({ label, children }) => (
-    <div className="mt-4">
-      <div className="uppercase tracking-wider mb-1" style={{ fontSize: 9, color: T.faint }}>{label}</div>
-      {children}
-    </div>
-  );
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(25,25,23,0.45)" }} onClick={onClose}>

@@ -1,33 +1,60 @@
 [
   {
-    "instrument": "CCT Comércio Varejista SP 2026/2027",
-    "pdf": "goldenset/cct_sp_2026.pdf",
+    "instrument": "Tarifvertrag Metall NRW 2024/2026",
+    "pdf": "goldenset/tarifvertrag-metall-nrw-2024-2026.pdf",
+    "policy": "goldenset/policies/ref-base.json",
+    "doc_type": "tarifvertrag",
+    "jurisdiction": "DE",
     "expected": {
-      "Jorn": "match",
       "OT/d": "adjust",
       "Not": "adjust",
-      "Intra": "gap",
-      "BH": "conflict",
       "Sun/Hol": "adjust",
-      "Tol": "match"
+      "Jorn": "adjust",
+      "BH": "adjust",
+      "Inter": "adjust"
     }
   },
   {
-    "instrument": "CCT Boticário 2026/2027",
-    "pdf": "goldenset/cct_botic_2026.pdf",
+    "instrument": "IVF Australia Nursing Enterprise Agreement 2026",
+    "pdf": "goldenset/ivf-australia-nursing-ea-2026.pdf",
+    "policy": "goldenset/policies/ref-base.json",
+    "doc_type": "cba",
+    "jurisdiction": "AU",
     "expected": {
-      "OT/d": "adjust",
-      "Intra": "match",
-      "Abono": "gap"
+      "OT/d": "match",
+      "Not": "adjust",
+      "Sun/Hol": "adjust",
+      "Jorn": "adjust",
+      "Intra": "adjust",
+      "Inter": "adjust",
+      "BH": "adjust",
+      "OnCall": "gap"
     }
   },
   {
-    "instrument": "CCT Logística e Transporte SP 2026",
-    "pdf": "goldenset/cct_log_2026.pdf",
+    "instrument": "Miscellaneous Award 2020 (MA000104)",
+    "pdf": "goldenset/misc-award-au-2020.pdf",
+    "policy": "goldenset/policies/ref-base.json",
+    "doc_type": "award",
+    "jurisdiction": "AU",
+    "note": "Not=gap: the award's 'ordinary hours outside 7am-7pm 120%' is an unsocial-hours PENALTY, which does not map to the night PREMIUM capability (naming distinction per Assaf).",
     "expected": {
-      "OnCall": "conflict",
-      "Not": "match",
-      "OT/d": "adjust"
+      "OT/d": "match",
+      "Not": "gap",
+      "Sun/Hol": "adjust",
+      "Jorn": "adjust",
+      "Intra": "adjust",
+      "BH": "adjust"
     }
+  },
+  {
+    "instrument": "Oregon Employment Department 2026 Legislative Session Summary",
+    "pdf": "goldenset/oed-legislative-summary-2026.pdf",
+    "policy": "goldenset/policies/ref-base.json",
+    "doc_type": "statute",
+    "jurisdiction": "US-OR",
+    "no_ta_content": true,
+    "note": "Negative control: a legislative summary about Paid Leave Oregon, wage-theft enforcement, and UI trust funds. Contains NO time-&-attendance / pay-calc rules mapping to the 17 capabilities. Correct output is zero findings; any prediction is a false positive.",
+    "expected": {}
   }
 ]

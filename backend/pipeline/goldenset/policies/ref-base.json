@@ -1,0 +1,19 @@
+{
+  "Paid Overtime": {
+    "OT/d": "Rate rows 50% / 100% (Specific days · Percentage)",
+    "BH": "ON · 2-month compensation cycle · missing days: reduce from bank + mark · positive/negative balance at expiry: do nothing (keep as expired)"
+  },
+  "Hours Distribution": {
+    "Not": "20% · window 22:00-05:00 · shift starting in-window counts entirely as night"
+  },
+  "Tolerance": {
+    "Tol": "10 min · per punch"
+  },
+  "On Call": {
+    "OnCall": "Follow pay policies"
+  },
+  "Special Rules": {
+    "Inter": "11h minimum inter-shift rest"
+  },
+  "Employees": {}
+}

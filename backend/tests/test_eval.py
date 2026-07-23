@@ -7,7 +7,8 @@ sys.path.insert(0, str(PIPELINE))
 
 import eval_harness  # noqa: E402
 
-GOLDEN = PIPELINE / "goldenset" / "golden.json"
+# Tests run against the stable committed sample fixture; the real, growing set lives in golden.json.
+GOLDEN = PIPELINE / "goldenset" / "golden.example.json"
 
 
 def test_score_instrument_recall_and_precision():

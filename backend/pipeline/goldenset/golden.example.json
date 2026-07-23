@@ -1,0 +1,36 @@
+[
+  {
+    "instrument": "CCT Comércio Varejista SP 2026/2027",
+    "pdf": "goldenset/cct_sp_2026.pdf",
+    "policy": "br-retail",
+    "expected": {
+      "Jorn": "match",
+      "OT/d": "adjust",
+      "Not": "adjust",
+      "Intra": "gap",
+      "BH": "conflict",
+      "Sun/Hol": "adjust",
+      "Tol": "match"
+    }
+  },
+  {
+    "instrument": "CCT Boticário 2026/2027",
+    "pdf": "goldenset/cct_botic_2026.pdf",
+    "policy": "br-botic",
+    "expected": {
+      "OT/d": "adjust",
+      "Intra": "match",
+      "Abono": "gap"
+    }
+  },
+  {
+    "instrument": "CCT Logística e Transporte SP 2026",
+    "pdf": "goldenset/cct_log_2026.pdf",
+    "policy": "br-log",
+    "expected": {
+      "OnCall": "conflict",
+      "Not": "match",
+      "OT/d": "adjust"
+    }
+  }
+]

@@ -70,11 +70,24 @@ export const listDocuments = () => req("/api/documents");
 export const getDocument = (id) => req(`/api/documents/${id}`);
 export const analyzeDocument = (id) => req(`/api/documents/${id}/analyze`, { method: "POST" });
 export const finalizeDocument = (id) => req(`/api/documents/${id}/finalize`, { method: "POST" });
+export const deleteDocument = (id, password) =>
+  req(`/api/documents/${id}`, {
+    method: "DELETE",
+    headers: { "X-Delete-Password": password || "" },
+  });
 
 export async function uploadDocument(form) {
   // form: FormData with file, jurisdiction, policy_id, doc_type, title, ...
   return req("/api/documents", { method: "POST", body: form });
 }
+
+// rename a document (or set its subtitle) — marks the title as human-set
+export const updateDocument = (id, body) =>
+  req(`/api/documents/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
 
 // --- review ---
 export const reviewFinding = (id, action) =>
@@ -84,10 +97,28 @@ export const reviewFinding = (id, action) =>
     body: JSON.stringify(action),
   });
 
+// chat with the assistant about a specific finding; returns { reply, chat_messages, suggestion }
+export const chatFinding = (id, message) =>
+  req(`/api/findings/${id}/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message }),
+  });
+
 // --- verified output ---
 export const listRules = () => req("/api/rules");
 export const listConfigValues = () => req("/api/config-values");
 export const decisionRecord = (id) => req(`/api/documents/${id}/decision-record`);
+// the pay policy + how this document changes it (current vs proposed config, per-field diff, gaps)
+export const configDiff = (id) => req(`/api/documents/${id}/config-diff`);
+
+// fetch a rasterized scanned-page image (auth'd) as an object URL for <img src>.
+// Caller owns the URL and must URL.revokeObjectURL(...) it when done (e.g. on unmount).
+export async function fetchPageImage(documentId, page) {
+  const res = await fetch(`${BASE}/api/documents/${documentId}/pages/${page}/image`, { headers: authHeader() });
+  if (!res.ok) throw new Error(`could not load page image: ${res.status}`);
+  return URL.createObjectURL(await res.blob());
+}
 
 // open a blob (e.g. the original PDF) in a new tab, with auth
 export async function openFile(path) {
