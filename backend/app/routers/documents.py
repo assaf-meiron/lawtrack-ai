@@ -45,7 +45,7 @@ async def upload_document(
     file: UploadFile = File(...),
     jurisdiction: str = Form(...),
     policy_id: Optional[str] = Form(None),
-    doc_type: str = Form("cct"),
+    doc_type: str = Form("collective_agreement"),
     title: Optional[str] = Form(None),
     cba_name: Optional[str] = Form(None),
     source: Optional[str] = Form(None),

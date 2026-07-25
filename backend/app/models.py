@@ -210,7 +210,7 @@ class Document(Base):
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
     jurisdiction: Mapped[str] = mapped_column(String(64))          # country / state / CBA key, e.g. "BR-SP"
     cba_name: Mapped[str | None] = mapped_column(String(255), default=None)
-    doc_type: Mapped[DocType] = mapped_column(SAEnum(DocType), default=DocType.cct)
+    doc_type: Mapped[DocType] = mapped_column(SAEnum(DocType), default=DocType.collective_agreement)
     title: Mapped[str] = mapped_column(String(512))
     # True while the title is still auto-derived (filename, then AI); flips to False once a human
     # renames the document, so re-analysis never clobbers a name the reviewer chose.

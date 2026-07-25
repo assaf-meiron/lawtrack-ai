@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Loader2, History, FileText, AlertCircle, Download, Layers as LayersIcon, Search, ChevronRight } from "lucide-react";
 import * as api from "./api.js";
-import { T, countryFlag, StatusPill } from "./shared.jsx";
+import { T, countryFlag, docTypeLabel, StatusPill } from "./shared.jsx";
 
 const COUNTRY_NAME = {
   US: "United States", FR: "France", AU: "Australia", DE: "Germany", BR: "Brazil",
@@ -128,7 +128,7 @@ export default function LayersScreen({ fireToast }) {
                       <ChevronRight size={14} color={T.muted} style={{ transform: isOpen ? "rotate(90deg)" : "none", transition: "transform 0.15s" }} />
                       <span className="text-sm">{layers[0].flag || countryFlag(cc)}</span>
                       <span className="text-sm font-semibold truncate" style={{ color: T.ink }}>{COUNTRY_NAME[cc] || cc}</span>
-                      <span className="ml-auto text-xs rounded-full px-1.5 py-0.5" style={{ background: "#eceae5", color: T.muted }}>{layers.length}</span>
+                      <span className="ml-auto text-xs rounded-full px-1.5 py-0.5" style={{ background: "#eef1f6", color: T.muted }}>{layers.length}</span>
                     </button>
 
                     {isOpen && (
@@ -191,7 +191,7 @@ export default function LayersScreen({ fireToast }) {
                 ) : (
                   <div className="flex flex-col gap-2">
                     {[...detail.versions].reverse().map((v) => (
-                      <div key={v.id} className="rounded-lg p-3" style={{ border: `1px solid ${T.line}`, background: "#faf9f7" }}>
+                      <div key={v.id} className="rounded-lg p-3" style={{ border: `1px solid ${T.line}`, background: "#f7f9fc" }}>
                         <div className="flex items-center justify-between">
                           <span className="text-sm font-semibold" style={{ color: T.ink }}>v{v.version}</span>
                           <span className="text-xs" style={{ color: T.faint }}>{new Date(v.created_at).toLocaleString()}</span>
@@ -216,11 +216,11 @@ export default function LayersScreen({ fireToast }) {
                         <div key={e.id}>
                           <button onClick={() => openDiff(e.id)}
                             className="w-full flex items-center justify-between rounded-lg px-3 py-2 text-left transition-colors"
-                            style={{ border: `1px solid ${on ? T.line2 : T.line}`, background: on ? "#faf9f7" : "#fff" }}>
+                            style={{ border: `1px solid ${on ? T.line2 : T.line}`, background: on ? "#f7f9fc" : "#fff" }}>
                             <div className="min-w-0">
                               <div className="text-sm font-medium truncate" style={{ color: T.ink }}>{e.title}</div>
                               <div className="text-xs uppercase tracking-wide" style={{ fontSize: 9, color: T.faint }}>
-                                {e.doc_type} · {on ? "hide changes" : "see how it changes the policy"}
+                                {docTypeLabel(e.doc_type)} · {on ? "hide changes" : "see how it changes the policy"}
                               </div>
                             </div>
                             <StatusPill status={e.status} />
@@ -303,7 +303,7 @@ function ConfigDiff({ diff }) {
   const changed = diff.diff.filter((d) => d.changed);
   const unchanged = diff.diff.filter((d) => !d.changed);
   return (
-    <div className="rounded-lg p-3" style={{ border: `1px solid ${T.line2}`, background: "#fbfaf8" }}>
+    <div className="rounded-lg p-3" style={{ border: `1px solid ${T.line2}`, background: "#f9fafc" }}>
       <div className="text-xs mb-2" style={{ color: T.muted }}>
         {diff.policy ? <>Against <strong style={{ color: T.ink2 }}>{diff.policy.name}</strong> v{diff.policy.version} · </> : null}
         <span style={{ color: changed.length ? "#b45309" : T.faint }}>{changed.length} field change{changed.length === 1 ? "" : "s"}</span>
