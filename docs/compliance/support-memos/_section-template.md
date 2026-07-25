@@ -1,6 +1,6 @@
 # Country memo — section template & authoring spec
 
-> **What this is.** The canonical structure every `support-memos/<country>.md` file follows. The
+> **What this is:** The canonical structure every `support-memos/<country>.md` file follows. The
 > goal of these files (as of 2026-07-21) is to be the **single ground-truth reference for a
 > country's time-&-attendance *legal requirements*** — grouped by topic, so a compliance advisor
 > or engineer can read the whole T&A rule surface of a jurisdiction in one place.

@@ -1,4 +1,4 @@
-# Czech Republic — T&A requirements
+# Czech Republic — T&A requirements document
 
 > **What this is.** The ground-truth reference for the Czech Republic's time-&-attendance legal
 > requirements, detailed enough to **build a day.io pay policy from**. It aims to be **exhaustive**
