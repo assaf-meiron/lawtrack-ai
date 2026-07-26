@@ -61,7 +61,9 @@ export default function ReviewScreen({ docId, onBack, fireToast }) {
   const findings = doc.findings || [];
   const numberOf = (id) => findings.findIndex((f) => f.id === id) + 1;
   const pages = doc.pages || [];
-  const hasImages = pages.some((p) => p.has_image);
+  // Any PDF-backed document can be shown as page images — the backend renders a page on first request
+  // (documents.py::get_document_page_image), so `has_image` on a page is a hint, not a precondition.
+  const hasImages = doc.has_file || pages.some((p) => p.has_image);
   const c = counts(findings);
   // `unsure` is an open question, not a resolved decision — mirror the backend's status logic.
   const RESOLVED = ["approved", "corrected", "rejected"];
@@ -294,7 +296,7 @@ function ExportMenu({ onDownload }) {
   );
 }
 
-/* ---- view mode toggle: Text / Image / Both — shown only for scanned documents ---- */
+/* ---- view mode toggle: Text / Image / Both — shown for any document with a stored PDF ---- */
 function ViewModeToggle({ mode, onChange }) {
   const opts = [["text", "Text"], ["image", "Image"], ["both", "Both"]];
   return (
@@ -385,7 +387,7 @@ function SourceViewer({ doc, findings, active, filters, onSelect, spanRefs, page
     <div className="flex flex-col gap-4">
       {pages.map((page) => {
         const pageFindings = byPage(page.page);
-        const showImage = viewMode !== "text" && page.has_image;
+        const showImage = viewMode !== "text" && (page.has_image || doc.has_file);
         const showText = viewMode !== "image";
         const textCol = (
           <div className="px-10 py-9" style={{ fontFamily: 'Georgia, "Times New Roman", serif', color: "#262b3d" }}>

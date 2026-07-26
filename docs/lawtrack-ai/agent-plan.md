@@ -53,6 +53,15 @@ the scanner until the digest loop is design-partner-validated.
 
 ## Phase 2 — Scan for new documents (the monitor)
 
+> **Shipped as a preview, not as detection.** The app now carries this loop's *operator surface* — the
+> Scanner chip ("N documents found in the last 48 hours"), the watch list, the feed of finds, and a scan
+> run that walks the seven steps below with live numbers ([`backend/app/routers/agent.py`](../../backend/app/routers/agent.py),
+> `frontend/src/AgentScanner.jsx`). Steps ③–⑦ are real: a find is an ordinary document with cited
+> findings reviewed through the Phase-1 queue, and ④'s fan-out is a live query over the layer tree.
+> Steps ①–② are not: a scan surfaces a prepared document instead of fetching a gazette. The sequencing
+> rule below is unchanged — this is a way to *show* Phase 2 while Phase 1 gets validated, not a claim
+> that detection exists.
+
 **Only after Phase 1 works.** Auto-detect mode adds a front end that *finds* documents and a back end
 that *fans the digest out across affected tenants* — but the middle (extract → map → draft) is the exact
 Phase-1 loop, unchanged. It also carries a permanent ops line (legal curation) — which is itself the moat.

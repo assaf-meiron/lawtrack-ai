@@ -30,8 +30,10 @@ def _load_env_file(path: Path) -> None:
         key, _, val = line.partition("=")
         key = key.strip()
         val = val.strip().strip('"').strip("'")
-        if key and val:
-            os.environ.setdefault(key, val)
+        # Fill in over an *empty* existing var too: docker-compose's `KEY: ${KEY:-}` exports an empty
+        # string when the shell doesn't have the variable, which setdefault would take as configured.
+        if key and val and not os.environ.get(key):
+            os.environ[key] = val
 
 
 _load_env_file(_BACKEND_DIR / ".env")
@@ -49,13 +51,31 @@ MAX_TOKENS_TRANSCRIBE = 64000  # a full scanned-doc transcription is long → st
 
 
 def get_client():
-    """Return an Anthropic client, or exit with a clear message (this is a scaffold)."""
+    """Return an Anthropic client, or raise with a clear, actionable message.
+
+    An *empty* ANTHROPIC_API_KEY (what `docker compose`'s `${ANTHROPIC_API_KEY:-}` exports when the
+    shell has no key) is treated as unset: it's dropped from the environment so a credentials file
+    still gets a chance, and if nothing at all is configured we say so plainly — the SDK's own
+    "Could not resolve authentication method" surfaced to reviewers as an unexplained analysis failure.
+    """
     try:
         import anthropic
     except ImportError:
-        sys.exit("anthropic SDK not installed — run: pip install -r requirements.txt")
-    # A bare client also works after `ant auth login`; only warn if nothing is configured.
-    if not os.getenv("ANTHROPIC_API_KEY") and not os.getenv("ANTHROPIC_AUTH_TOKEN"):
-        print("note: no ANTHROPIC_API_KEY set — relying on an `ant auth login` profile if present.",
-              file=sys.stderr)
+        raise RuntimeError("anthropic SDK not installed — run: pip install -r requirements.txt")
+
+    for var in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"):
+        if var in os.environ and not os.environ[var].strip():
+            del os.environ[var]
+
+    has_env_creds = bool(os.getenv("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_AUTH_TOKEN"))
+    if not has_env_creds:
+        # A bare client still works off an `ant auth login` profile; only its absence is fatal.
+        from pathlib import Path as _Path
+        if not (_Path.home() / ".anthropic").exists():
+            raise RuntimeError(
+                "no Anthropic credentials configured — set ANTHROPIC_API_KEY in backend/.env "
+                "(and `docker compose up -d --build backend` so the container picks it up), "
+                "or sign in with `ant auth login`."
+            )
+        print("note: no ANTHROPIC_API_KEY set — relying on an `ant auth login` profile.", file=sys.stderr)
     return anthropic.Anthropic()

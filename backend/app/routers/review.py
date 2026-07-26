@@ -146,7 +146,12 @@ def chat_about_finding(
         raise HTTPException(400, "message cannot be empty")
 
     history = list(f.chat_messages or [])
-    reply, suggestion = pipeline_adapter.chat_about_finding(f, history, message)
+    try:
+        reply, suggestion = pipeline_adapter.chat_about_finding(f, history, message)
+    except pipeline_adapter.PipelineError as e:
+        # 502 with the reason attached. An unhandled exception here would 500 *outside* the CORS
+        # middleware, and the browser reports that to the reviewer as a bare "Failed to fetch".
+        raise HTTPException(502, str(e)) from e
 
     history.append({"role": "user", "content": message})
     history.append({"role": "assistant", "content": reply})

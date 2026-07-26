@@ -15,6 +15,10 @@ export const T = {
   paper: "#f5f7fa", panel: "#ffffff", ink: "#232838", ink2: "#3d4459",
   muted: "#6b7280", faint: "#98a1b3", line: "#e3e6ed", line2: "#d5d9e3",
   signal: "#1e97f7", signalSoft: "#e9f5ff",
+  // the AI-agent gradient (violet → brand blue → cyan) — used wherever the product should
+  // read as an autonomous agent rather than a passive scanner (see AgentScanner.jsx).
+  aiGradient: "linear-gradient(135deg, #7c6cf6 0%, #1e97f7 55%, #22d3ee 100%)",
+  aiSoft: "#f1eefe",
 };
 
 /* The only saturated color in the product — the change taxonomy, keyed by the
@@ -65,7 +69,7 @@ export function LayerChip({ policy, className = "" }) {
           style={{ fontSize: 9, background: "#eef0f4", color: T.faint, border: `1px solid ${T.line}` }}>
           No layer
         </span>
-        <span className="truncate" style={{ color: T.faint }}>author mode</span>
+        <span className="truncate min-w-0" style={{ color: T.faint }}>author mode</span>
       </span>
     );
   }
@@ -76,7 +80,7 @@ export function LayerChip({ policy, className = "" }) {
         style={{ fontSize: 9, background: "#eef2ff", color: "#4f46e5", border: "1px solid #e0e7ff" }}>
         {meta?.label || (policy.layer_type || "Layer")}
       </span>
-      <span className="truncate" style={{ color: T.ink2 }}>{policy.name}</span>
+      <span className="truncate min-w-0" style={{ color: T.ink2 }}>{policy.name}</span>
     </span>
   );
 }
@@ -99,7 +103,16 @@ export function counts(findings) {
    inside extracted paragraph text even if spacing differs. */
 export const norm = (s) => (s || "").replace(/\s+/g, " ").trim();
 
-export const flag = { BR: "🇧🇷", FR: "🇫🇷", MX: "🇲🇽", DE: "🇩🇪", US: "🇺🇸" };
+/* Jurisdiction flags. Keyed by the country code, so a region key ("US-CA", "DE-NRW") flies its
+   country's flag — the region itself is spelled out next to it everywhere this is used. */
+export const flag = {
+  BR: "🇧🇷", FR: "🇫🇷", MX: "🇲🇽", DE: "🇩🇪", US: "🇺🇸",
+  AU: "🇦🇺", CA: "🇨🇦", IN: "🇮🇳", ES: "🇪🇸", GB: "🇬🇧",
+  IT: "🇮🇹", NL: "🇳🇱", PL: "🇵🇱", PT: "🇵🇹", AR: "🇦🇷", CL: "🇨🇱", CO: "🇨🇴",
+  // Latin America watch-list expansion (South America, Mexico & Central America, the Caribbean)
+  BO: "🇧🇴", EC: "🇪🇨", PY: "🇵🇾", PE: "🇵🇪", UY: "🇺🇾", VE: "🇻🇪",
+  CR: "🇨🇷", SV: "🇸🇻", GT: "🇬🇹", HN: "🇭🇳", DO: "🇩🇴", PR: "🇵🇷",
+};
 export const countryFlag = (j) => flag[(j || "").slice(0, 2).toUpperCase()] || "🌐";
 
 // Local names for the same underlying document — a collective agreement — are still

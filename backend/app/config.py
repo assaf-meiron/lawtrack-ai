@@ -12,8 +12,11 @@ from pathlib import Path
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# Repo root: backend/app/config.py -> app -> backend -> <repo root>
-REPO_ROOT = Path(__file__).resolve().parents[2]
+# backend/app/config.py -> app -> backend -> <repo root>. In the Docker image the tree is flattened
+# to /app/{app,pipeline}, so BACKEND_DIR is /app and REPO_ROOT is "/" — always anchor paths that must
+# exist (storage, .env) on BACKEND_DIR, never on REPO_ROOT.
+BACKEND_DIR = Path(__file__).resolve().parents[1]
+REPO_ROOT = BACKEND_DIR.parent
 
 DEV_JWT_SECRET = "dev-insecure-change-me"
 
@@ -33,12 +36,18 @@ def _load_env_file(path: Path) -> None:
         key, _, val = line.partition("=")
         key = key.strip()
         val = val.strip().strip('"').strip("'")
-        if key and val:  # skip empty values so a blank placeholder doesn't set an empty env var
-            os.environ.setdefault(key, val)
+        # Skip empty values so a blank placeholder doesn't set an empty env var, and fill in over an
+        # *empty* existing var — docker-compose's `KEY: ${KEY:-}` exports an empty string when the
+        # variable is unset in the shell, which setdefault would treat as already-configured.
+        if key and val and not os.environ.get(key):
+            os.environ[key] = val
 
 
 # Load backend/.env early so ANTHROPIC_API_KEY (and any LAWTRACK_* overrides) are available before the
 # Settings below read the environment and before the Anthropic client is constructed at analyze time.
+# Both locations are tried: BACKEND_DIR is `backend/` locally and `/app` in the container (where
+# docker-compose mounts the same file).
+_load_env_file(BACKEND_DIR / ".env")
 _load_env_file(REPO_ROOT / "backend" / ".env")
 
 
@@ -63,8 +72,8 @@ class Settings(BaseSettings):
         default=["http://localhost:5173", "http://localhost:3000"]
     )
 
-    # storage for uploaded PDF blobs
-    storage_dir: str = Field(default=str(REPO_ROOT / "backend" / "storage"))
+    # storage for uploaded PDF blobs — `backend/storage` locally, `/app/storage` in the container
+    storage_dir: str = Field(default=str(BACKEND_DIR / "storage"))
 
     # seed the demo dataset on startup if the DB is empty
     seed_on_startup: bool = Field(default=True)

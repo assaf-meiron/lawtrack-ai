@@ -17,26 +17,21 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from .. import pipeline_adapter
+from ..blobs import STORAGE, pages_dir, resolve_blob
 from ..config import get_settings
 from ..db import get_db
 from ..models import Document, DocStatus, DocType, PayPolicy, User
-from ..pdf_render import is_scanned_pdf, rasterize_pages, render_pdf_pages
+from ..pdf_render import is_scanned_pdf, rasterize_one_page, rasterize_pages, render_pdf_pages
 from ..schemas import DocumentDetail, DocumentOut, DocumentUpdate
 from ..security import get_current_user
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
 
-STORAGE = Path(get_settings().storage_dir)
 STORAGE.mkdir(parents=True, exist_ok=True)
 
 
 def _parse_date(s: Optional[str]) -> Optional[date]:
     return date.fromisoformat(s) if s else None
-
-
-def _pages_dir(document_id) -> Path:
-    """Where a scanned document's rasterized page images live (see `rasterize_pages`)."""
-    return STORAGE / f"{document_id}_pages"
 
 
 @router.post("", response_model=DocumentDetail)
@@ -61,14 +56,16 @@ async def upload_document(
     dest.write_bytes(await file.read())
 
     pages = render_pdf_pages(str(dest)) or None
-    # Scanned/image-only PDFs have no text layer, so the reviewer needs the actual page image to
-    # check a later AI transcription against. This is local rasterization (no LLM call) — cheap
-    # and synchronous, unlike the vision transcription which runs in the background at analyze time.
-    if pages and is_scanned_pdf(str(dest)):
-        rendered = set(rasterize_pages(str(dest), _pages_dir(doc_id)))
+    # Every PDF-backed document can be viewed as page images (Image/Both in the reviewer), and pages
+    # are rendered lazily on first request — see `get_document_page_image`. Scanned/image-only PDFs
+    # are the one case worth rendering up front: they have no text layer at all, so the reviewer has
+    # nothing to read until the image is there. Local rasterization, no LLM call.
+    if pages:
+        rendered = set(rasterize_pages(str(dest), pages_dir(doc_id))) if is_scanned_pdf(str(dest)) else set()
         for p in pages:
+            p["has_image"] = True
             if p["page"] in rendered:
-                p["has_image"] = True
+                p["image_ready"] = True
 
     try:
         dt = DocType(doc_type)
@@ -155,25 +152,31 @@ def get_document_file(document_id: uuid.UUID, db: Session = Depends(get_db), _: 
     doc = db.get(Document, document_id)
     if not doc:
         raise HTTPException(404, "document not found")
-    if not doc.file_path or not Path(doc.file_path).exists():
+    blob = resolve_blob(doc.file_path)
+    if blob is None:
         raise HTTPException(404, "no original file stored for this document (seed/demo documents render from text)")
-    return FileResponse(doc.file_path, media_type="application/pdf", filename=f"{doc.title}.pdf")
+    return FileResponse(blob, media_type="application/pdf", filename=f"{doc.title}.pdf")
 
 
 @router.get("/{document_id}/pages/{page_num}/image")
 def get_document_page_image(
     document_id: uuid.UUID, page_num: int, db: Session = Depends(get_db), _: User = Depends(get_current_user),
 ):
-    """Serve a rasterized page image (scanned documents only — see `rasterize_pages`).
+    """Serve a rasterized page image, rendering it on first request.
 
-    Lets the reviewer check an AI-transcribed page against the actual scan side by side.
+    Lets the reviewer put the actual page next to what was extracted from it — the check that matters
+    most on a scan, where the text is an AI transcription rather than a text layer.
     """
     doc = db.get(Document, document_id)
     if not doc:
         raise HTTPException(404, "document not found")
-    image_path = _pages_dir(document_id) / f"{page_num}.png"
+    image_path = pages_dir(document_id) / f"{page_num}.png"
     if not image_path.exists():
-        raise HTTPException(404, "no rendered image for this page")
+        blob = resolve_blob(doc.file_path)
+        if blob is None:
+            raise HTTPException(404, "no stored PDF for this document, so no page image")
+        if rasterize_one_page(str(blob), pages_dir(document_id), page_num) is None:
+            raise HTTPException(404, "this page could not be rendered")
     return FileResponse(image_path, media_type="image/png")
 
 
@@ -205,7 +208,7 @@ def delete_document(
     # remove the stored blob + any rasterized page images (best-effort; DB delete is the source of truth)
     if doc.file_path:
         Path(doc.file_path).unlink(missing_ok=True)
-    shutil.rmtree(_pages_dir(document_id), ignore_errors=True)
+    shutil.rmtree(pages_dir(document_id), ignore_errors=True)
     db.delete(doc)   # findings cascade; PolicyVersion/UnsupportedCalculation refs are SET NULL
     db.commit()
     return None
@@ -221,7 +224,7 @@ def analyze_document(
     doc = db.get(Document, document_id)
     if not doc:
         raise HTTPException(404, "document not found")
-    if not doc.file_path or not Path(doc.file_path).exists():
+    if resolve_blob(doc.file_path) is None:
         raise HTTPException(400, "this document has no stored PDF (seed/demo documents are pre-analyzed)")
     doc.status = DocStatus.analyzing
     doc.error_detail = None

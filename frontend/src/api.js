@@ -105,6 +105,12 @@ export const chatFinding = (id, message) =>
     body: JSON.stringify({ message }),
   });
 
+// --- source scanner (Phase 2) ---
+// status: the watch list, recent finds, and the review backlog they created.
+// scan: run one cycle — reports what was checked/triaged and surfaces what it found.
+export const agentStatus = () => req("/api/agent/status");
+export const runAgentScan = () => req("/api/agent/scan", { method: "POST" });
+
 // --- verified output ---
 export const listRules = () => req("/api/rules");
 export const listConfigValues = () => req("/api/config-values");

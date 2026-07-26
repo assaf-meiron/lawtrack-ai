@@ -7,6 +7,7 @@ import Login from "./Login.jsx";
 import DocumentsScreen from "./DocumentsScreen.jsx";
 import ReviewScreen from "./ReviewScreen.jsx";
 import LayersScreen from "./LayersScreen.jsx";
+import { AgentProvider, AgentChip } from "./AgentScanner.jsx";
 
 export default function App() {
   const { user, ready, logout } = useAuth();
@@ -20,35 +21,33 @@ export default function App() {
     setTimeout(() => setToast((cur) => (cur && cur.id === id ? null : cur)), 2600);
   }, []);
 
+  const openReview = useCallback((id) => {
+    setDocId(id);
+    setScreen("review");
+  }, []);
+
   if (!ready) {
     return <div className="min-h-screen" style={{ background: T.paper }} />;
   }
+  // The scanner provider polls an authenticated endpoint, so it mounts only behind the login.
   if (!user) return <Login />;
 
-  function openReview(id) {
-    setDocId(id);
-    setScreen("review");
-  }
-
-  if (screen === "review" && docId) {
-    return (
-      <>
-        <ReviewScreen docId={docId} onBack={() => setScreen("documents")} fireToast={fireToast} />
-        <Toast toast={toast} />
-      </>
-    );
-  }
-
   return (
-    <div className="min-h-screen" style={{ background: T.paper, color: T.ink }}>
-      <TopNav user={user} screen={screen} setScreen={setScreen} logout={logout} />
-      {screen === "documents" ? (
-        <DocumentsScreen onOpen={openReview} fireToast={fireToast} />
+    <AgentProvider fireToast={fireToast} onOpenDocument={openReview}>
+      {screen === "review" && docId ? (
+        <ReviewScreen docId={docId} onBack={() => setScreen("documents")} fireToast={fireToast} />
       ) : (
-        <LayersScreen fireToast={fireToast} />
+        <div className="min-h-screen" style={{ background: T.paper, color: T.ink }}>
+          <TopNav user={user} screen={screen} setScreen={setScreen} logout={logout} />
+          {screen === "documents" ? (
+            <DocumentsScreen onOpen={openReview} fireToast={fireToast} />
+          ) : (
+            <LayersScreen fireToast={fireToast} />
+          )}
+        </div>
       )}
       <Toast toast={toast} />
-    </div>
+    </AgentProvider>
   );
 }
 
@@ -80,6 +79,9 @@ function TopNav({ user, screen, setScreen, logout }) {
         </div>
       </div>
       <div className="flex items-center gap-3">
+        {/* the scanner: how many documents it found in the last 48 hours, and the way into its panel */}
+        <AgentChip />
+        <div className="self-stretch" style={{ width: 1, background: T.line }} />
         <div className="text-xs text-right">
           <div className="font-medium" style={{ color: T.ink }}>{user.display_name || user.username}</div>
           <div style={{ color: T.faint }}>@{user.username}</div>

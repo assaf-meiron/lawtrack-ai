@@ -1,30 +1,50 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
-  Upload, Building2, Layers, FileText, Gavel, FilePlus, Clock, Search,
+  Upload, Building2, Layers, FileText, Gavel, FilePlus, Radar, Hand,
   Loader2, RefreshCw, Check, Trash2, LayoutGrid, List,
 } from "lucide-react";
 import * as api from "./api.js";
 import { T, CLASS, CLASS_ORDER, counts, countryFlag, docTypeLabel, StatusPill, LayerChip } from "./shared.jsx";
 import UploadModal from "./UploadModal.jsx";
+import AtlasBackdrop from "./AtlasBackdrop.jsx";
+import { AgentStrip, useAgent, isAgentFound, agentSourceName, relTime } from "./AgentScanner.jsx";
 
 const KIND_ICON = {
   collective_agreement: FileText, cct: FileText, act: FileText, cba: FileText, ccn: FileText, tarifvertrag: FileText, award: FileText,
   statute: Gavel, state_law: Gavel, reform: FilePlus, policy: FileText, other: FileText,
 };
 
+// How a document got here. The scanner's finds carry an `Agent · <registry>` source (see AgentScanner);
+// everything else was put there by a person.
+const ORIGINS = [
+  { v: "all", label: "All" },
+  { v: "agent", label: "Found by agent", Icon: Radar },
+  { v: "manual", label: "Manual upload", Icon: Hand },
+];
+
 export default function DocumentsScreen({ onOpen, fireToast }) {
   const [docs, setDocs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [groupBy, setGroupBy] = useState("country");
-  const [view, setView] = useState("cards"); // 'cards' | 'list'
+  const [view, setView] = useState("list"); // 'list' | 'cards' — the list is the working view
+  const [origin, setOrigin] = useState("all");
   const [uploadOpen, setUploadOpen] = useState(false);
   const [error, setError] = useState(null);
+  const [landed, setLanded] = useState([]);  // ids a scan just surfaced — briefly highlighted
   const pollRef = useRef(null);
+  const seenRef = useRef(null);
+  const { foundTick, scanning } = useAgent() || {};
 
   async function load() {
     try {
       const list = await api.listDocuments();
       const details = await Promise.all(list.map((d) => api.getDocument(d.id)));
+      // Anything present now that wasn't on the previous pass arrived while the user was watching.
+      if (seenRef.current) {
+        const fresh = details.map((d) => d.id).filter((id) => !seenRef.current.has(id));
+        if (fresh.length) setLanded(fresh);
+      }
+      seenRef.current = new Set(details.map((d) => d.id));
       setDocs(details);
       setError(null);
     } catch (e) {
@@ -38,6 +58,12 @@ export default function DocumentsScreen({ onOpen, fireToast }) {
     load();
     return () => clearTimeout(pollRef.current);
   }, []);
+
+  // a scan run that surfaced something → pull the inbox again so the find is in the list
+  useEffect(() => {
+    if (foundTick) load();
+    /* eslint-disable-next-line */
+  }, [foundTick]);
 
   // poll while anything is analyzing
   useEffect(() => {
@@ -69,130 +95,179 @@ export default function DocumentsScreen({ onOpen, fireToast }) {
     }
   }
 
+  const originCounts = useMemo(() => ({
+    all: docs.length,
+    agent: docs.filter(isAgentFound).length,
+    manual: docs.filter((d) => !isAgentFound(d)).length,
+  }), [docs]);
+
+  const visible = useMemo(() => {
+    if (origin === "agent") return docs.filter(isAgentFound);
+    if (origin === "manual") return docs.filter((d) => !isAgentFound(d));
+    return docs;
+  }, [docs, origin]);
+
   const groups = useMemo(() => {
     const g = {};
-    docs.forEach((d) => {
+    visible.forEach((d) => {
       const key = groupBy === "country" ? `${countryFlag(d.jurisdiction)}  ${d.jurisdiction}` : d.cba_name || "—";
       (g[key] = g[key] || []).push(d);
     });
     return Object.entries(g);
-  }, [docs, groupBy]);
+  }, [visible, groupBy]);
 
-  const readyCount = docs.filter((d) => d.status === "analyzed").length;
-  const reviewedCount = docs.filter((d) => d.status === "reviewed").length;
+  const readyCount = visible.filter((d) => d.status === "analyzed").length;
+  const reviewedCount = visible.filter((d) => ["reviewed", "complete"].includes(d.status)).length;
 
   return (
-    <div className="mx-auto" style={{ maxWidth: 1180 }}>
-      {/* controls */}
-      <div className="px-6 pt-6 pb-2 flex flex-wrap items-center gap-3 justify-between">
-        <div className="flex items-center gap-3">
-          {/* view: cards vs detailed list */}
-          <div className="inline-flex rounded-lg p-0.5" style={{ background: "#eef1f6", border: `1px solid ${T.line}` }}>
-            {[{ v: "cards", label: "Cards", Icon: LayoutGrid }, { v: "list", label: "List", Icon: List }].map((o) => {
-              const on = view === o.v; const Icon = o.Icon;
-              return (
-                <button key={o.v} onClick={() => setView(o.v)}
-                  className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors"
-                  style={{ background: on ? "#fff" : "transparent", color: on ? T.ink : T.muted, boxShadow: on ? "0 1px 2px rgba(0,0,0,0.08)" : "none" }}>
-                  <Icon size={14} /> {o.label}
-                </button>
-              );
-            })}
+    <>
+      <AtlasBackdrop live={!!scanning} />
+      <div className="mx-auto relative" style={{ maxWidth: 1180, zIndex: 1 }}>
+        {/* the scanner, above the inbox it feeds */}
+        <div className="px-6 pt-5">
+          <AgentStrip />
+        </div>
+
+        {/* controls */}
+        <div className="px-6 pt-4 pb-2 flex flex-wrap items-center gap-3 justify-between">
+          <div className="flex items-center gap-3 flex-wrap">
+            {/* view: detailed list vs cards */}
+            <Segmented
+              options={[{ v: "list", label: "List", Icon: List }, { v: "cards", label: "Cards", Icon: LayoutGrid }]}
+              value={view} onChange={setView}
+            />
+            {view === "cards" && (
+              <Segmented
+                options={[{ v: "country", label: "By country", Icon: Building2 }, { v: "cba", label: "By CBA", Icon: Layers }]}
+                value={groupBy} onChange={setGroupBy}
+              />
+            )}
+            {/* origin: what the scanner found vs what a person uploaded */}
+            <Segmented
+              options={ORIGINS.map((o) => ({ ...o, label: `${o.label} · ${originCounts[o.v]}` }))}
+              value={origin} onChange={setOrigin}
+            />
           </div>
-          {view === "cards" && (
-            <div className="inline-flex rounded-lg p-0.5" style={{ background: "#eef1f6", border: `1px solid ${T.line}` }}>
-              {[{ v: "country", label: "By country", Icon: Building2 }, { v: "cba", label: "By CBA", Icon: Layers }].map((o) => {
-                const on = groupBy === o.v; const Icon = o.Icon;
-                return (
-                  <button key={o.v} onClick={() => setGroupBy(o.v)}
-                    className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors"
-                    style={{ background: on ? "#fff" : "transparent", color: on ? T.ink : T.muted, boxShadow: on ? "0 1px 2px rgba(0,0,0,0.08)" : "none" }}>
-                    <Icon size={14} /> {o.label}
-                  </button>
-                );
-              })}
-            </div>
-          )}
+          <button onClick={() => setUploadOpen(true)}
+            className="flex items-center gap-2 rounded-lg px-3.5 py-2 text-sm font-medium text-white transition-transform active:scale-95"
+            style={{ background: T.ink }}>
+            <Upload size={16} /> Upload PDF
+          </button>
+        </div>
+
+        {/* counts + legend */}
+        <div className="px-6 pb-3 flex items-center gap-4 flex-wrap">
           <div className="text-xs" style={{ color: T.muted }}>
-            <span className="font-semibold" style={{ color: T.ink }}>{docs.length}</span> documents ·{" "}
+            <span className="font-semibold" style={{ color: T.ink }}>{visible.length}</span> documents ·{" "}
             <span className="font-semibold" style={{ color: T.ink }}>{readyCount}</span> ready ·{" "}
             <span className="font-semibold" style={{ color: T.ink }}>{reviewedCount}</span> reviewed
           </div>
-        </div>
-        <button onClick={() => setUploadOpen(true)}
-          className="flex items-center gap-2 rounded-lg px-3.5 py-2 text-sm font-medium text-white transition-transform active:scale-95"
-          style={{ background: T.ink }}>
-          <Upload size={16} /> Upload PDF
-        </button>
-      </div>
-
-      {/* legend */}
-      <div className="px-6 pb-3 flex items-center gap-4 flex-wrap">
-        {CLASS_ORDER.map((k) => (
-          <div key={k} className="flex items-center gap-1.5 text-xs" style={{ color: T.muted }}>
-            <span className="inline-block rounded-full" style={{ width: 9, height: 9, background: CLASS[k].dot }} />
-            {CLASS[k].label}
-          </div>
-        ))}
-      </div>
-
-      {error && (
-        <div className="mx-6 mb-4 text-sm rounded-lg px-3 py-2" style={{ background: "#fef2f2", color: "#b91c1c", border: "1px solid #fecaca" }}>
-          {error}
-        </div>
-      )}
-
-      {loading ? (
-        <div className="px-6 py-16 flex items-center gap-2 text-sm" style={{ color: T.muted }}>
-          <Loader2 size={16} className="animate-spin" /> Loading documents…
-        </div>
-      ) : docs.length === 0 ? (
-        <div className="mx-6 my-6 rounded-xl p-10 text-center text-sm" style={{ border: `1px dashed ${T.line2}`, color: T.faint }}>
-          No documents yet. Upload a CBA or law PDF to get started.
-        </div>
-      ) : view === "list" ? (
-        <div className="px-6 pb-16">
-          <DocTable docs={docs} onOpen={onOpen} onAnalyze={analyze} onDelete={remove} />
-        </div>
-      ) : (
-        <div className="px-6 pb-16">
-          {groups.map(([label, ids]) => (
-            <div key={label} className="mb-7">
-              <div className="flex items-center gap-2 mb-3">
-                <div className="text-sm font-semibold tracking-tight" style={{ color: T.ink2 }}>{label}</div>
-                <div className="h-px flex-1" style={{ background: T.line }} />
-                <div className="text-xs" style={{ color: T.faint }}>{ids.length}</div>
-              </div>
-              <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))" }}>
-                {ids.map((d) => (
-                  <DocCard key={d.id} doc={d} onOpen={onOpen} onAnalyze={analyze} onDelete={remove} />
-                ))}
-              </div>
+          <div className="h-3.5" style={{ width: 1, background: T.line2 }} />
+          {CLASS_ORDER.map((k) => (
+            <div key={k} className="flex items-center gap-1.5 text-xs" style={{ color: T.muted }}>
+              <span className="inline-block rounded-full" style={{ width: 9, height: 9, background: CLASS[k].dot }} />
+              {CLASS[k].label}
             </div>
           ))}
         </div>
-      )}
 
-      {uploadOpen && (
-        <UploadModal
-          onClose={() => setUploadOpen(false)}
-          onUploaded={() => { setUploadOpen(false); fireToast("Analyzing uploaded document…"); load(); }}
-          fireToast={fireToast}
-        />
-      )}
+        {error && (
+          <div className="mx-6 mb-4 text-sm rounded-lg px-3 py-2" style={{ background: "#fef2f2", color: "#b91c1c", border: "1px solid #fecaca" }}>
+            {error}
+          </div>
+        )}
+
+        {loading ? (
+          <div className="px-6 py-16 flex items-center gap-2 text-sm" style={{ color: T.muted }}>
+            <Loader2 size={16} className="animate-spin" /> Loading documents…
+          </div>
+        ) : visible.length === 0 ? (
+          <div className="mx-6 my-6 rounded-xl p-10 text-center text-sm" style={{ background: "rgba(255,255,255,0.7)", border: `1px dashed ${T.line2}`, color: T.faint }}>
+            {origin === "agent"
+              ? "The scanner hasn't surfaced anything yet. Run a scan from the strip above."
+              : "No documents yet. Upload a CBA or law PDF to get started."}
+          </div>
+        ) : view === "list" ? (
+          <div className="px-6 pb-16">
+            <DocTable docs={visible} landed={landed} onOpen={onOpen} onAnalyze={analyze} onDelete={remove} />
+          </div>
+        ) : (
+          <div className="px-6 pb-16">
+            {groups.map(([label, ids]) => (
+              <div key={label} className="mb-7">
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="text-sm font-semibold tracking-tight" style={{ color: T.ink2 }}>{label}</div>
+                  <div className="h-px flex-1" style={{ background: T.line }} />
+                  <div className="text-xs" style={{ color: T.faint }}>{ids.length}</div>
+                </div>
+                <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))" }}>
+                  {ids.map((d) => (
+                    <DocCard key={d.id} doc={d} landed={landed.includes(d.id)} onOpen={onOpen} onAnalyze={analyze} onDelete={remove} />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {uploadOpen && (
+          <UploadModal
+            onClose={() => setUploadOpen(false)}
+            onUploaded={() => { setUploadOpen(false); fireToast("Analyzing uploaded document…"); load(); }}
+            fireToast={fireToast}
+          />
+        )}
+      </div>
+    </>
+  );
+}
+
+/* ---- a segmented control, the one used by every toolbar toggle here ---- */
+function Segmented({ options, value, onChange }) {
+  return (
+    <div className="inline-flex rounded-lg p-0.5" style={{ background: "#eef1f6", border: `1px solid ${T.line}` }}>
+      {options.map((o) => {
+        const on = value === o.v;
+        const Icon = o.Icon;
+        return (
+          <button key={o.v} onClick={() => onChange(o.v)}
+            className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors"
+            style={{ background: on ? "#fff" : "transparent", color: on ? T.ink : T.muted, boxShadow: on ? "0 1px 2px rgba(0,0,0,0.08)" : "none" }}>
+            {Icon && <Icon size={14} />} {o.label}
+          </button>
+        );
+      })}
     </div>
   );
 }
 
-function DocCard({ doc, onOpen, onAnalyze, onDelete }) {
+/* ---- provenance: found by the scanner, or put here by a person ---- */
+function OriginBadge({ doc, compact = false }) {
+  const agent = isAgentFound(doc);
+  const label = agent ? agentSourceName(doc) : (doc.source || "Manual upload");
+  return (
+    <span className="inline-flex items-center gap-1.5 min-w-0" title={agent ? `Found by the scanner at ${label}` : label}>
+      <span className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 shrink-0 uppercase tracking-wide"
+        style={agent
+          ? { fontSize: 9, background: T.signalSoft, color: "#0b6fbd", border: `1px solid #cfe8fd` }
+          : { fontSize: 9, background: "#eef0f4", color: T.muted, border: `1px solid ${T.line}` }}>
+        {agent ? <Radar size={9} /> : <Hand size={9} />} {agent ? "Agent" : "Manual"}
+      </span>
+      <span className="truncate min-w-0" style={{ color: T.muted, fontSize: compact ? 11 : 12 }}>{label}</span>
+    </span>
+  );
+}
+
+function DocCard({ doc, landed, onOpen, onAnalyze, onDelete }) {
   const KindIcon = KIND_ICON[doc.doc_type] || FileText;
   const c = counts(doc.findings || []);
-  const clickable = ["analyzed", "in_review", "reviewed"].includes(doc.status);
-  const btnLabel = doc.status === "reviewed" ? "View" : doc.status === "in_review" ? "Continue" : "Review";
+  const clickable = ["analyzed", "in_review", "reviewed", "complete"].includes(doc.status);
+  const btnLabel = doc.status === "reviewed" || doc.status === "complete" ? "View" : doc.status === "in_review" ? "Continue" : "Review";
   // Finalized (complete) documents are part of the audit trail — the backend blocks deleting them.
   const deletable = doc.status !== "complete" && !doc.finalized_at;
   return (
-    <div className="rounded-xl overflow-hidden" style={{ background: T.panel, border: `1px solid ${doc.status === "error" ? "#f0c9c9" : T.line}`, boxShadow: "0 1px 3px rgba(0,0,0,0.05)", opacity: doc.status === "reviewed" ? 0.9 : 1 }}>
+    <div className={`rounded-xl overflow-hidden ${landed ? "lt-landed" : ""}`}
+      style={{ background: T.panel, border: `1px solid ${doc.status === "error" ? "#f0c9c9" : landed ? T.signal : T.line}`, boxShadow: "0 1px 3px rgba(0,0,0,0.05)", opacity: doc.status === "reviewed" ? 0.9 : 1 }}>
       <div className="p-4 pb-3">
         <div className="flex items-start justify-between gap-2">
           <div className="flex items-start gap-2.5 min-w-0">
@@ -214,8 +289,9 @@ function DocCard({ doc, onOpen, onAnalyze, onDelete }) {
           </div>
         </div>
         {doc.subtitle && <div className="mt-3 text-xs leading-relaxed" style={{ color: T.ink2 }}>{doc.subtitle}</div>}
-        <div className="mt-2.5 flex items-center gap-1.5 text-xs" style={{ color: T.faint }}>
-          <Search size={12} /> <span className="truncate">{doc.source || "—"}</span>
+        <div className="mt-2.5 flex items-center gap-1.5 text-xs min-w-0">
+          <OriginBadge doc={doc} compact />
+          <span className="shrink-0" style={{ color: T.faint, fontSize: 11 }}>· {relTime(doc.created_at)}</span>
         </div>
         {doc.status === "error" && doc.error_detail && (
           <div className="mt-2 text-xs rounded px-2 py-1.5" style={{ background: "#fef2f2", color: "#b91c1c" }}>{doc.error_detail}</div>
@@ -232,7 +308,7 @@ function DocCard({ doc, onOpen, onAnalyze, onDelete }) {
             <MiniCounts c={c} />
             <button onClick={() => onOpen(doc.id)}
               className="rounded-lg px-3 py-1.5 text-xs font-semibold active:scale-95 transition-transform"
-              style={doc.status === "reviewed"
+              style={doc.status === "reviewed" || doc.status === "complete"
                 ? { background: "#fff", border: `1px solid ${T.line2}`, color: T.ink2 }
                 : { background: T.ink, color: "#fff" }}>
               {btnLabel}
@@ -289,11 +365,6 @@ function FindingBreakdown({ findings }) {
   );
 }
 
-function fmtWhen(iso) {
-  if (!iso) return "—";
-  return new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
-}
-
 // reusable password-gated delete: a trash button that opens a small confirm popover. Used by both views.
 function DeleteControl({ doc, onDelete }) {
   const [open, setOpen] = useState(false);
@@ -328,23 +399,37 @@ function DeleteControl({ doc, onDelete }) {
   );
 }
 
-// detailed list view: one row per document — status, layer, findings breakdown, last updated, actions
-function DocTable({ docs, onOpen, onAnalyze, onDelete }) {
+// detailed list view: one row per document — origin, status, layer, findings breakdown, actions
+function DocTable({ docs, landed, onOpen, onAnalyze, onDelete }) {
   const rows = [...docs].sort((a, b) => new Date(b.updated_at || b.created_at) - new Date(a.updated_at || a.created_at));
-  const HEAD = ["Document", "Status", "Layer", "Findings — conflict · gap · adjust · aligned", "Updated", ""];
+  // Fixed widths, so the actions column can't be pushed out of the frame by a long title or layer name.
+  const COLS = [
+    { w: "auto", label: "Document" },
+    { w: 168, label: "How it got here" },
+    { w: 104, label: "Status" },
+    { w: 196, label: "Layer" },
+    { w: 132, label: "Findings", title: "conflict · flag · gap · config · aligned" },
+    { w: 116, label: "" },
+  ];
   return (
-    <div className="rounded-xl overflow-hidden" style={{ border: `1px solid ${T.line}`, background: "#fff" }}>
+    <div className="rounded-xl overflow-hidden" style={{ border: `1px solid ${T.line}`, background: "#fff", boxShadow: "0 1px 3px rgba(35,40,56,0.05)" }}>
       <div style={{ overflowX: "auto" }}>
-        <table className="w-full text-sm" style={{ borderCollapse: "collapse", minWidth: 860 }}>
+        <table className="w-full text-sm" style={{ borderCollapse: "collapse", tableLayout: "fixed", minWidth: 900 }}>
+          <colgroup>
+            {COLS.map((c, i) => <col key={i} style={c.w === "auto" ? undefined : { width: c.w }} />)}
+          </colgroup>
           <thead>
             <tr style={{ background: "#f7f9fc", borderBottom: `1px solid ${T.line}` }}>
-              {HEAD.map((h, i) => (
-                <th key={i} className="text-left uppercase tracking-wider px-3 py-2.5 font-semibold" style={{ fontSize: 9, color: T.faint }}>{h}</th>
+              {COLS.map((c, i) => (
+                <th key={i} title={c.title} className="text-left uppercase tracking-wider px-3 py-2.5 font-semibold"
+                  style={{ fontSize: 9, color: T.faint }}>{c.label}</th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {rows.map((d) => <DocRow key={d.id} doc={d} onOpen={onOpen} onAnalyze={onAnalyze} onDelete={onDelete} />)}
+            {rows.map((d) => (
+              <DocRow key={d.id} doc={d} landed={landed.includes(d.id)} onOpen={onOpen} onAnalyze={onAnalyze} onDelete={onDelete} />
+            ))}
           </tbody>
         </table>
       </div>
@@ -352,37 +437,47 @@ function DocTable({ docs, onOpen, onAnalyze, onDelete }) {
   );
 }
 
-function DocRow({ doc, onOpen, onAnalyze, onDelete }) {
+function DocRow({ doc, landed, onOpen, onAnalyze, onDelete }) {
   const KindIcon = KIND_ICON[doc.doc_type] || FileText;
-  const clickable = ["analyzed", "in_review", "reviewed"].includes(doc.status);
+  const clickable = ["analyzed", "in_review", "reviewed", "complete"].includes(doc.status);
   const deletable = doc.status !== "complete" && !doc.finalized_at;
-  const btnLabel = doc.status === "reviewed" ? "View" : doc.status === "in_review" ? "Continue" : "Review";
+  const btnLabel = doc.status === "reviewed" || doc.status === "complete" ? "View" : doc.status === "in_review" ? "Continue" : "Review";
   return (
-    <tr style={{ borderBottom: `1px solid ${T.line}` }} className="hover:bg-gray-50">
-      <td className="px-3 py-2.5">
+    <tr className={`hover:bg-gray-50 ${landed ? "lt-landed" : ""}`} style={{ borderBottom: `1px solid ${T.line}` }}>
+      <td className="px-3 py-2.5" style={{ overflow: "hidden" }}>
         <div className="flex items-center gap-2 min-w-0">
           <KindIcon size={15} color={T.ink2} className="shrink-0" />
           <div className="min-w-0">
-            <div className="font-medium truncate" style={{ color: T.ink, maxWidth: 280 }}>{doc.title}</div>
+            <div className="font-medium flex items-center gap-1.5 min-w-0" style={{ color: T.ink }}>
+              <span className="truncate min-w-0">{doc.title}</span>
+              {landed && (
+                <span className="shrink-0 rounded px-1 uppercase tracking-wider font-bold" style={{ fontSize: 8.5, background: T.signal, color: "#fff" }}>new</span>
+              )}
+            </div>
             <div className="text-xs" style={{ color: T.faint }}>
               <span className="uppercase tracking-wide" style={{ fontSize: 9 }}>{docTypeLabel(doc.doc_type)}</span> · {countryFlag(doc.jurisdiction)} {doc.jurisdiction}
             </div>
           </div>
         </div>
       </td>
+      <td className="px-3 py-2.5" style={{ overflow: "hidden" }}>
+        <div className="min-w-0">
+          <OriginBadge doc={doc} compact />
+          <div style={{ fontSize: 10, color: T.faint, marginTop: 2 }}>{relTime(doc.created_at)}</div>
+        </div>
+      </td>
       <td className="px-3 py-2.5"><StatusPill status={doc.status} /></td>
-      <td className="px-3 py-2.5">
-        <div className="text-xs" style={{ maxWidth: 210 }}><LayerChip policy={doc.policy} /></div>
+      <td className="px-3 py-2.5" style={{ overflow: "hidden" }}>
+        <div className="text-xs"><LayerChip policy={doc.policy} /></div>
       </td>
       <td className="px-3 py-2.5">
         {doc.status === "error" ? <span className="text-xs" style={{ color: T.faint }}>—</span> : <FindingBreakdown findings={doc.findings} />}
       </td>
-      <td className="px-3 py-2.5"><span className="text-xs whitespace-nowrap" style={{ color: T.muted }}>{fmtWhen(doc.updated_at || doc.created_at)}</span></td>
       <td className="px-3 py-2.5">
         <div className="flex items-center justify-end gap-1.5">
           {clickable ? (
             <button onClick={() => onOpen(doc.id)} className="rounded-lg px-3 py-1.5 text-xs font-semibold active:scale-95 transition-transform"
-              style={doc.status === "reviewed" ? { background: "#fff", border: `1px solid ${T.line2}`, color: T.ink2 } : { background: T.ink, color: "#fff" }}>
+              style={doc.status === "reviewed" || doc.status === "complete" ? { background: "#fff", border: `1px solid ${T.line2}`, color: T.ink2 } : { background: T.ink, color: "#fff" }}>
               {btnLabel}
             </button>
           ) : doc.status === "analyzing" ? (
