@@ -15,6 +15,7 @@ from pathlib import Path
 
 from sqlalchemy.orm import Session
 
+from .blobs import resolve_blob
 from .models import Classification, Confidence, DocStatus, Document, Finding
 from .pdf_render import is_scanned_pdf
 from .statutes import get_note
@@ -91,10 +92,12 @@ def analyze_document(db: Session, doc: Document) -> None:
     Idempotent: existing findings for the document are dropped and replaced.
     Raises PipelineError on any failure (caller maps to a 502 / stores error_detail).
     """
-    if not doc.file_path or not Path(doc.file_path).exists():
+    blob = resolve_blob(doc.file_path)
+    if blob is None:
         raise PipelineError(
             "no PDF blob is stored for this document (seed/demo documents are pre-analyzed)."
         )
+    pdf_path = str(blob)
 
     config, ingest, extract, mapping, transcribe = _import_pipeline()
 
@@ -103,13 +106,13 @@ def analyze_document(db: Session, doc: Document) -> None:
     db.commit()
     try:
         client = config.get_client()
-        file_id = ingest.upload_pdf(client, doc.file_path)
+        file_id = ingest.upload_pdf(client, pdf_path)
         doc.file_id = file_id
         # Scanned / image-only PDFs have no text layer, so the viewer's pdfplumber pages are
         # blank. Transcribe them via vision (reusing the uploaded file_id) so the source panel
         # isn't empty. Best-effort and committed on its own: the viewer is a nicety and must
         # never fail the analysis, and blank pages get fixed even if extraction later errors.
-        if is_scanned_pdf(doc.file_path):
+        if is_scanned_pdf(pdf_path):
             try:
                 _apply_transcript(doc, transcribe.transcribe_pages(client, file_id))
                 db.commit()
@@ -215,7 +218,10 @@ def chat_about_finding(finding: Finding, history: list[dict], message: str):
     `history` is the prior [{role, content}] transcript; `message` is the new reviewer message.
     """
     config, *_ = _import_pipeline()
-    client = config.get_client()
+    try:
+        client = config.get_client()
+    except Exception as e:  # noqa: BLE001 — missing credentials must reach the reviewer as a message
+        raise PipelineError(str(e)) from e
     prior = [
         {"role": m["role"], "content": m["content"]}
         for m in (history or [])

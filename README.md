@@ -65,10 +65,32 @@ the "who" in the audit trail.
 ## Live pipeline (real PDF analysis)
 
 Seeded documents are pre-analyzed. To analyze a **real** uploaded PDF, the backend needs Anthropic
-credentials — set `ANTHROPIC_API_KEY` (or use an `ant auth login` profile). Then **Upload PDF** in the
-UI: pick the pay policy to compare against, and the pipeline runs
+credentials — put `ANTHROPIC_API_KEY=…` in **`backend/.env`** (gitignored; loaded by `app/config.py`,
+and passed into the container by `docker-compose.yml`'s `env_file`), or use an `ant auth login`
+profile. Then **Upload PDF** in the UI: pick the pay policy to compare against, and the pipeline runs
 ingest → extract (cited clauses) → map (Opus 4.8) → change cards. Without credentials the app still
-runs fully on the seeded demo data; uploads just report a clear error at analysis time.
+runs fully on the seeded demo data; uploads report a clear "no Anthropic credentials configured" error
+at analysis time.
+
+> Docker note: after editing `backend/.env`, run `docker compose up -d backend` so the container
+> re-reads it. Do **not** add `ANTHROPIC_API_KEY` to the compose `environment:` block — an unset shell
+> variable exports as an empty string there, and an empty env var wins over the `.env` file.
+> Uploaded PDFs and rendered page images live in `backend/storage`, bind-mounted into the container so
+> a Docker run and a local `uvicorn` run share the same blobs.
+
+## The source scanner (Phase 2 preview)
+
+The **Scanner** chip in the top-right reports how many documents were found in the last 48 hours and
+opens the scanner panel: the watch list (15 registries across 8 jurisdictions), the feed of finds with
+their cited findings and affected-layer counts, and **Run scan now** — one cycle walked through the
+seven steps of [`agent-plan.md`](docs/lawtrack-ai/agent-plan.md) §Phase 2 with live numbers.
+
+What's real: every find is an ordinary `Document` with real cited findings, reviewed through the same
+Phase-1 queue as an upload, and the fan-out counts are live queries over the four-layer tree. What
+isn't yet: **detection** — a scan surfaces the next entry from a prepared pool
+([`seed_extra.SCAN_POOL`](backend/app/seed_extra.py)) rather than fetching a gazette. Nothing reaches
+the network. A document found by the scanner is marked by its `source` (`Agent · <registry>`), which is
+also what the documents list filters on. See [`app/routers/agent.py`](backend/app/routers/agent.py).
 
 Models per stage (see [`backend/pipeline/config.py`](backend/pipeline/config.py)): Opus 4.8 for the
 correctness-critical mapping, Sonnet 5 for volume extraction, Haiku 4.5 reserved for Phase-2 triage.
@@ -117,11 +139,13 @@ Classifications: 🟢 Match · 🟡 Adjust · 🔴 Gap · 🟣 Conflict (warn, n
 
 ```
 backend/
-  app/            FastAPI app: config, security (JWT+bcrypt), models, routers, pipeline_adapter, seed, manage_users
+  app/            FastAPI app: config, security (JWT+bcrypt), models, routers (incl. agent/scanner),
+                  pipeline_adapter, blobs, seed + seed_extra (statutes & scan pool), manage_users
   pipeline/       Claude-API pipeline (ingest→extract→map→draft), taxonomy, eval_harness + goldenset/
   tests/          pytest suite (SQLite, no credentials required)
 frontend/
-  src/            React app: api client, auth, Documents / Review (split cited view) / Verified output
+  src/            React app: api client, auth, Documents (list/cards + scanner strip + atlas backdrop) /
+                  Review (split cited view) / Layers, AgentScanner (chip · panel · scan walkthrough)
 docs/lawtrack-ai/ PRD · spec · technical-design · productization · agent-plan
 docker-compose.yml
 ```

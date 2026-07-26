@@ -27,12 +27,25 @@ services:
       LAWTRACK_DATABASE_URL: postgresql+psycopg://lawtrack:lawtrack@db:5432/lawtrack
       LAWTRACK_JWT_SECRET: ${LAWTRACK_JWT_SECRET:-change-me-in-production}
       LAWTRACK_SEED_ON_STARTUP: "true"
-      # Pass your key through to enable live PDF analysis (optional):
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    # Live PDF analysis needs Anthropic credentials. They come from `backend/.env` (gitignored), so the
+    # key reaches the container without entering the image or this file. Declaring ANTHROPIC_API_KEY
+    # under `environment` instead would export an *empty* value whenever the shell doesn't have one —
+    # and an empty env var beats the .env file.
+    env_file:
+      - path: ./backend/.env
+        required: false
     ports:
       - "8000:8000"
+    # Reload on edit: this compose file is the local demo stack, and rebuilding the image for every
+    # backend change is the slow path. `uvicorn[standard]` brings the file watcher.
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
     volumes:
-      - lawtrack_storage:/app/storage
+      # Bind-mount (not a named volume): the same blobs must be visible whether the backend runs in
+      # this container or as a local `uvicorn`, otherwise uploaded PDFs and page images vanish
+      # depending on which one served the upload.
+      - ./backend/storage:/app/storage
+      - ./backend/app:/app/app
+      - ./backend/pipeline:/app/pipeline
 
   frontend:
     build:
@@ -46,4 +59,3 @@ services:
 
 volumes:
   lawtrack_pgdata:
-  lawtrack_storage:

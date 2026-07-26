@@ -51,11 +51,11 @@ def is_scanned_pdf(path: str) -> bool:
 
 
 def rasterize_pages(path: str, out_dir: Path, dpi: int = 150) -> list[int]:
-    """Render each page of a scanned PDF to `{out_dir}/{page}.png`; return the page numbers rendered.
+    """Render each page of a PDF to `{out_dir}/{page}.png`; return the page numbers rendered.
 
-    Only called for scanned/image-only docs (see `is_scanned_pdf`) — that's the case the review
-    viewer needs a page image for, so a reviewer can check a transcription against the actual scan.
-    Best-effort per page: a page that fails to render is skipped, not fatal to the whole document.
+    The review viewer's Image/Both mode shows these, so a reviewer can check the extracted text —
+    or an AI transcription of a scan — against the actual page. Best-effort per page: a page that
+    fails to render is skipped, not fatal to the whole document.
     """
     try:
         import fitz  # PyMuPDF
@@ -77,3 +77,26 @@ def rasterize_pages(path: str, out_dir: Path, dpi: int = 150) -> list[int]:
     except Exception:  # noqa: BLE001 — a bad PDF should not crash upload; image pane degrades gracefully
         return rendered
     return rendered
+
+
+def rasterize_one_page(path: str, out_dir: Path, page_num: int, dpi: int = 150) -> Path | None:
+    """Render a single page to `{out_dir}/{page_num}.png` and return it (None if it can't be rendered).
+
+    Lets the page-image endpoint serve any PDF-backed document lazily — rendering every page of a
+    200-page agreement up front would make upload crawl, and most pages are never looked at.
+    """
+    try:
+        import fitz  # PyMuPDF
+    except ImportError:
+        return None
+    try:
+        with fitz.open(path) as pdf:
+            if page_num < 1 or page_num > pdf.page_count:
+                return None
+            out_dir.mkdir(parents=True, exist_ok=True)
+            dest = out_dir / f"{page_num}.png"
+            zoom = dpi / 72
+            pdf[page_num - 1].get_pixmap(matrix=fitz.Matrix(zoom, zoom)).save(str(dest))
+            return dest
+    except Exception:  # noqa: BLE001 — a bad PDF/page just means no image; the viewer degrades
+        return None

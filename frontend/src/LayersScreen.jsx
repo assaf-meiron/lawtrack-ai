@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Loader2, History, FileText, AlertCircle, Download, Layers as LayersIcon, Search, ChevronRight } from "lucide-react";
+import { Loader2, History, FileText, AlertCircle, Download, Layers as LayersIcon, Search, ChevronRight, X } from "lucide-react";
 import * as api from "./api.js";
-import { T, countryFlag, docTypeLabel, StatusPill } from "./shared.jsx";
+import { T, countryFlag, docTypeLabel, StatusPill, LAYER_TYPE_META } from "./shared.jsx";
 
 const COUNTRY_NAME = {
   US: "United States", FR: "France", AU: "Australia", DE: "Germany", BR: "Brazil",
@@ -23,24 +23,32 @@ export default function LayersScreen({ fireToast }) {
   const [diffDocId, setDiffDocId] = useState(null);
   const [diff, setDiff] = useState(null);
   const [query, setQuery] = useState("");
+  const [typeFilter, setTypeFilter] = useState(null); // null = all, else one of SUBTYPE_ORDER
   const [openCountries, setOpenCountries] = useState({}); // countryCode -> bool (manual toggles)
 
-  // Filter by country / jurisdiction / CBA (name, subtitle, jurisdiction code, layer type), then
-  // build a country → layers tree so hundreds of layers stay navigable (collapsed by country).
+  // Filter by country / jurisdiction / CBA (name, subtitle, jurisdiction code, layer type) and by
+  // layer-type chip, then build a country → layers tree so hundreds of layers stay navigable
+  // (collapsed by country).
   const tree = useMemo(() => {
     const q = query.trim().toLowerCase();
     const match = (p) =>
-      !q ||
-      [p.name, p.subtitle, p.jurisdiction, p.layer_type, COUNTRY_NAME[countryCode(p.jurisdiction)], countryFlag(p.jurisdiction)]
-        .filter(Boolean)
-        .some((s) => String(s).toLowerCase().includes(q));
+      (!typeFilter || p.layer_type === typeFilter) &&
+      (!q ||
+        [p.name, p.subtitle, p.jurisdiction, p.layer_type, COUNTRY_NAME[countryCode(p.jurisdiction)], countryFlag(p.jurisdiction)]
+          .filter(Boolean)
+          .some((s) => String(s).toLowerCase().includes(q)));
     const byCountry = {};
     policies.filter(match).forEach((p) => {
       const cc = countryCode(p.jurisdiction);
       (byCountry[cc] = byCountry[cc] || []).push(p);
     });
     return Object.entries(byCountry).sort(([a], [b]) => a.localeCompare(b));
-  }, [policies, query]);
+  }, [policies, query, typeFilter]);
+  const typeCounts = useMemo(() => {
+    const c = {};
+    policies.forEach((p) => { c[p.layer_type] = (c[p.layer_type] || 0) + 1; });
+    return c;
+  }, [policies]);
 
   useEffect(() => {
     api.listPolicies()
@@ -92,29 +100,45 @@ export default function LayersScreen({ fireToast }) {
         </button>
       </div>
 
-      <div className="px-6 pb-16 flex gap-4" style={{ alignItems: "flex-start" }}>
-        {/* left: searchable country tree (scales to hundreds of layers) */}
-        <div className="shrink-0 flex flex-col gap-2" style={{ width: 320 }}>
-          <div className="relative">
-            <Search size={14} color={T.faint} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)" }} />
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search country, state, jurisdiction, CBA…"
-              className="w-full rounded-lg pl-8 pr-3 py-2 text-sm outline-none"
-              style={{ border: `1px solid ${T.line2}`, color: T.ink, background: "#fff" }}
-            />
-          </div>
-          <div className="px-1 text-xs" style={{ color: T.faint }}>
-            {policies.length} layers across {new Set(policies.map((p) => countryCode(p.jurisdiction))).size} countries
+      <div className="px-6 pb-16 flex gap-5" style={{ alignItems: "flex-start" }}>
+        {/* left: searchable, filterable country tree (scales to hundreds of layers) */}
+        <div className="shrink-0 rounded-xl overflow-hidden flex flex-col" style={{ width: 340, background: "#fff", border: `1px solid ${T.line}` }}>
+          <div className="p-3 flex flex-col gap-2.5" style={{ borderBottom: `1px solid ${T.line}` }}>
+            <div className="relative">
+              <Search size={14} color={T.faint} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)" }} />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search country, state, jurisdiction, CBA…"
+                className="w-full rounded-lg pl-8 pr-7 py-2 text-sm outline-none"
+                style={{ border: `1px solid ${T.line2}`, color: T.ink, background: T.paper }}
+              />
+              {query && (
+                <button onClick={() => setQuery("")} style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", color: T.faint }}>
+                  <X size={13} />
+                </button>
+              )}
+            </div>
+
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <FilterChip active={!typeFilter} onClick={() => setTypeFilter(null)} label="All" count={policies.length} />
+              {SUBTYPE_ORDER.filter((st) => typeCounts[st]).map((st) => (
+                <FilterChip key={st} active={typeFilter === st} onClick={() => setTypeFilter(typeFilter === st ? null : st)}
+                  label={LAYER_TYPE_META[st]?.label || st} count={typeCounts[st]} />
+              ))}
+            </div>
+
+            <div className="px-0.5 text-xs" style={{ color: T.faint }}>
+              {policies.length} layers across {new Set(policies.map((p) => countryCode(p.jurisdiction))).size} countries
+            </div>
           </div>
 
           {tree.length === 0 ? (
-            <div className="text-xs rounded-lg p-4 text-center" style={{ border: `1px dashed ${T.line2}`, color: T.faint }}>
-              No layers match “{query}”.
+            <div className="text-xs rounded-lg p-5 m-3 text-center" style={{ border: `1px dashed ${T.line2}`, color: T.faint }}>
+              No layers match your filters.
             </div>
           ) : (
-            <div className="flex flex-col gap-1 overflow-y-auto" style={{ maxHeight: "calc(100vh - 220px)" }}>
+            <div className="flex flex-col gap-0.5 overflow-y-auto p-2" style={{ maxHeight: "calc(100vh - 300px)" }}>
               {tree.map(([cc, layers]) => {
                 const isOpen = query.trim()
                   ? true
@@ -122,31 +146,36 @@ export default function LayersScreen({ fireToast }) {
                 const bySub = {};
                 layers.forEach((l) => { (bySub[l.layer_type] = bySub[l.layer_type] || []).push(l); });
                 return (
-                  <div key={cc}>
+                  <div key={cc} className="rounded-lg" style={{ background: isOpen ? "#f7f9fc" : "transparent" }}>
                     <button onClick={() => setOpenCountries((o) => ({ ...o, [cc]: !isOpen }))}
-                      className="w-full flex items-center gap-2 rounded-lg px-2 py-2 hover:bg-gray-50 transition-colors">
+                      className="w-full flex items-center gap-2 rounded-lg px-2.5 py-2.5 hover:bg-gray-50 transition-colors">
                       <ChevronRight size={14} color={T.muted} style={{ transform: isOpen ? "rotate(90deg)" : "none", transition: "transform 0.15s" }} />
-                      <span className="text-sm">{layers[0].flag || countryFlag(cc)}</span>
+                      <span style={{ fontSize: 15 }}>{layers[0].flag || countryFlag(cc)}</span>
                       <span className="text-sm font-semibold truncate" style={{ color: T.ink }}>{COUNTRY_NAME[cc] || cc}</span>
-                      <span className="ml-auto text-xs rounded-full px-1.5 py-0.5" style={{ background: "#eef1f6", color: T.muted }}>{layers.length}</span>
+                      <span className="ml-auto text-xs rounded-full px-1.5 py-0.5 font-medium" style={{ background: "#eef1f6", color: T.muted }}>{layers.length}</span>
                     </button>
 
                     {isOpen && (
-                      <div className="ml-3 pl-2 flex flex-col gap-1.5 pb-2" style={{ borderLeft: `1px solid ${T.line}` }}>
+                      <div className="ml-4 pl-3 flex flex-col gap-2 pb-2.5" style={{ borderLeft: `2px solid ${T.line}` }}>
                         {SUBTYPE_ORDER.filter((st) => bySub[st]).map((st) => (
-                          <div key={st} className="flex flex-col gap-1">
-                            <div className="uppercase tracking-wider px-1 pt-1" style={{ fontSize: 8.5, color: T.faint }}>{SUBTYPE_LABEL[st]}</div>
+                          <div key={st} className="flex flex-col gap-1.5">
+                            <div className="uppercase tracking-wider px-1" style={{ fontSize: 9.5, color: T.faint, fontWeight: 600 }}>{SUBTYPE_LABEL[st]}</div>
                             {bySub[st].map((p) => {
                               const on = p.id === selectedId;
                               return (
                                 <button key={p.id} onClick={() => setSelectedId(p.id)}
-                                  className="text-left rounded-lg px-2.5 py-2 transition-colors"
-                                  style={{ background: on ? "#fff" : "transparent", border: `1px solid ${on ? T.line2 : "transparent"}`, boxShadow: on ? "0 1px 3px rgba(0,0,0,0.06)" : "none" }}>
+                                  className="text-left rounded-lg px-3 py-2.5 transition-colors"
+                                  style={{
+                                    background: on ? T.signalSoft : "#fff",
+                                    border: `1px solid ${on ? T.signal : T.line}`,
+                                    borderLeft: `3px solid ${on ? T.signal : T.line}`,
+                                    boxShadow: on ? "0 1px 4px rgba(30,151,247,0.15)" : "none",
+                                  }}>
                                   <div className="text-sm font-medium leading-snug truncate" style={{ color: on ? T.ink : T.ink2 }}>{p.name}</div>
-                                  <div className="text-xs mt-0.5 flex items-center gap-1.5" style={{ color: T.faint }}>
+                                  <div className="text-xs mt-1 flex items-center gap-1.5" style={{ color: T.faint }}>
                                     {p.subtitle ? <span className="truncate">{p.subtitle}</span> : <span>{p.jurisdiction}</span>}
                                     <span>·</span>
-                                    <span style={{ color: p.version > 0 ? "#047857" : T.faint }}>{p.version > 0 ? `v${p.version}` : "no version"}</span>
+                                    <span style={{ color: p.version > 0 ? "#047857" : T.faint, fontWeight: 500 }}>{p.version > 0 ? `v${p.version}` : "no version"}</span>
                                   </div>
                                 </button>
                               );
@@ -368,6 +397,20 @@ function Panel({ Icon, title, children }) {
       </div>
       {children}
     </div>
+  );
+}
+
+function FilterChip({ active, onClick, label, count }) {
+  return (
+    <button onClick={onClick}
+      className="flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium transition-colors"
+      style={{
+        background: active ? T.ink : "#fff",
+        color: active ? "#fff" : T.ink2,
+        border: `1px solid ${active ? T.ink : T.line2}`,
+      }}>
+      {label} <span style={{ color: active ? "rgba(255,255,255,0.7)" : T.faint }}>{count}</span>
+    </button>
   );
 }
 

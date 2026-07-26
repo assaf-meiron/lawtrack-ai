@@ -14,3 +14,39 @@ body {
     Helvetica, Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
+
+/* The agent's two states (see AgentScanner.jsx): a slow breath while it's idle and watching,
+   an outward ping while a scan run is in flight. */
+@keyframes lt-breathe {
+  0%, 100% { transform: scale(0.82); opacity: 0.10; }
+  50%      { transform: scale(1);    opacity: 0.20; }
+}
+
+@keyframes lt-ping {
+  0%   { transform: scale(0.7); opacity: 0.35; }
+  70%  { transform: scale(1.5); opacity: 0; }
+  100% { transform: scale(1.5); opacity: 0; }
+}
+
+/* The agent's badge never sits still — it breathes continuously regardless of scan state,
+   so the product reads as "always on" rather than idle. Paired with a slow gradient drift. */
+@keyframes lt-breathe-strong {
+  0%, 100% { transform: scale(0.92); }
+  50%      { transform: scale(1.08); }
+}
+
+@keyframes lt-gradient-shift {
+  0%   { background-position: 0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+/* A find that just landed in the inbox: a brief brand-blue wash so the eye catches the new row. */
+@keyframes lt-land {
+  0%   { background-color: rgba(30, 151, 247, 0.16); }
+  100% { background-color: transparent; }
+}
+
+.lt-landed {
+  animation: lt-land 2.8s ease-out 1;
+}
