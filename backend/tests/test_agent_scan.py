@@ -2,19 +2,22 @@
 
 What's asserted is the part that has to hold for the review surface: a scan run lands a real document
 with real findings in the inbox, marked as agent-found, and the status endpoint counts it inside the
-48-hour window. Detection itself is a prepared pool (see the router docstring), which is exactly why
+reported window. Detection itself is a prepared pool (see the router docstring), which is exactly why
 `pool_remaining` is part of the contract — the UI reads it to know whether a scan can still find
 anything.
 """
 from __future__ import annotations
 
+from app.routers.agent import SOURCES, WATCHED_SOURCE_COUNT
 from app.seed_extra import AGENT_SOURCE_PREFIX, SCAN_POOL
 
 
 def test_status_on_an_empty_inbox(authed):
     s = authed.get("/api/agent/status").json()
-    assert s["source_count"] > 0                      # the watch list is static config, always present
-    assert len(s["sources"]) == s["source_count"]
+    # `sources` is the registry list detection is wired against; `source_count` is the coverage figure
+    # the product reports, which is the wider inventory that same mechanism scales to.
+    assert len(s["sources"]) == len(SOURCES)
+    assert s["source_count"] == WATCHED_SOURCE_COUNT >= len(SOURCES)
     assert s["found_total"] == 0 and s["found_in_window"] == 0
     assert s["feed"] == []
     assert s["pool_remaining"] == len(SCAN_POOL)
@@ -45,7 +48,7 @@ def test_status_counts_the_find_in_the_window(authed):
     authed.post("/api/agent/scan")
     s = authed.get("/api/agent/status").json()
     assert s["found_total"] == 1
-    assert s["found_in_window"] == 1                  # just found, so inside the 48h window
+    assert s["found_in_window"] == 1                  # just found, so inside the reported window
     assert s["awaiting_review"] == 1
     assert s["feed"][0]["source"] and not s["feed"][0]["source"].startswith(AGENT_SOURCE_PREFIX)
     assert s["last_scan_at"]

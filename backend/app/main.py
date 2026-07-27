@@ -79,6 +79,7 @@ app.add_api_route("/api/health", health, tags=["health"])
 
 app.include_router(auth.router)
 app.include_router(policies.router)
+app.include_router(policies.schema_router)
 app.include_router(documents.router)
 app.include_router(review.router)
 app.include_router(output.router)

@@ -57,6 +57,8 @@ export const me = () => req("/api/auth/me");
 // --- policies / layers ---
 export const listPolicies = () => req("/api/policies");
 export const getPolicy = (id) => req(`/api/policies/${id}`);
+// the six pay-policy tabs and their field labels — static, fetched once per Layers visit
+export const payPolicySchema = () => req("/api/pay-policy-schema");
 export const createPolicy = (body) =>
   req("/api/policies", {
     method: "POST",

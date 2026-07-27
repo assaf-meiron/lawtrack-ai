@@ -1,5 +1,5 @@
-import React, { useCallback, useState } from "react";
-import { LogOut, LayoutGrid, Layers } from "lucide-react";
+import React, { useCallback, useEffect, useState } from "react";
+import { LogOut, Inbox, Library, Compass } from "lucide-react";
 import { useAuth } from "./auth.jsx";
 import { T, Toast } from "./shared.jsx";
 import dayioLogo from "./assets/dayio-logo.svg";
@@ -7,6 +7,7 @@ import Login from "./Login.jsx";
 import DocumentsScreen from "./DocumentsScreen.jsx";
 import ReviewScreen from "./ReviewScreen.jsx";
 import LayersScreen from "./LayersScreen.jsx";
+import Tour from "./Tour.jsx";
 import { AgentProvider, AgentChip } from "./AgentScanner.jsx";
 
 export default function App() {
@@ -14,6 +15,13 @@ export default function App() {
   const [screen, setScreen] = useState("documents"); // documents | review | layers
   const [docId, setDocId] = useState(null);
   const [toast, setToast] = useState(null);
+  const [tourOn, setTourOn] = useState(false);
+
+  /* The tour opens on every sign-in, not once per browser — see Tour.jsx. Keyed on the username so
+     it re-arms after a sign-out/sign-in cycle, which is the loop someone rehearsing a demo lives in. */
+  useEffect(() => {
+    if (user) setTourOn(true);
+  }, [user?.username]);
 
   const fireToast = useCallback((msg, tone = "neutral") => {
     const id = Math.random();
@@ -38,7 +46,8 @@ export default function App() {
         <ReviewScreen docId={docId} onBack={() => setScreen("documents")} fireToast={fireToast} />
       ) : (
         <div className="min-h-screen" style={{ background: T.paper, color: T.ink }}>
-          <TopNav user={user} screen={screen} setScreen={setScreen} logout={logout} />
+          <TopNav user={user} screen={screen} setScreen={setScreen} logout={logout}
+            onTour={() => { setScreen("documents"); setTourOn(true); }} />
           {screen === "documents" ? (
             <DocumentsScreen onOpen={openReview} fireToast={fireToast} />
           ) : (
@@ -46,12 +55,14 @@ export default function App() {
           )}
         </div>
       )}
+      {/* The tour points at controls on the Documents screen, so it only runs while that's what's up. */}
+      {tourOn && screen === "documents" && <Tour onClose={() => setTourOn(false)} />}
       <Toast toast={toast} />
     </AgentProvider>
   );
 }
 
-function TopNav({ user, screen, setScreen, logout }) {
+function TopNav({ user, screen, setScreen, logout, onTour }) {
   const NavBtn = ({ id, Icon, label }) => {
     const on = screen === id;
     return (
@@ -65,7 +76,12 @@ function TopNav({ user, screen, setScreen, logout }) {
     );
   };
   return (
-    <div className="px-6 py-3 flex items-center justify-between" style={{ borderBottom: `1px solid ${T.line}`, background: T.panel }}>
+    /* `position: relative` + a z-index is load-bearing, not decoration. The Inbox draws
+       AtlasBackdrop as `position: fixed; z-index: 0`, and a positioned element paints above static
+       in-flow content in the same stacking context — so without this the backdrop's brand glow and
+       dot screen were laid over the top bar, greying out the logo and the nav pills. */
+    <div className="px-6 py-3 flex items-center justify-between relative"
+      style={{ borderBottom: `1px solid ${T.line}`, background: T.panel, zIndex: 10 }}>
       <div className="flex items-center gap-3">
         <img src={dayioLogo} alt="day.io" style={{ height: 20, width: "auto" }} />
         <div className="self-stretch" style={{ width: 1, background: T.line }} />
@@ -74,12 +90,20 @@ function TopNav({ user, screen, setScreen, logout }) {
           <div className="text-xs" style={{ color: T.muted }}>cited draft for expert review</div>
         </div>
         <div className="ml-4 flex items-center gap-1.5 rounded-lg p-0.5" style={{ background: "#eef1f6", border: `1px solid ${T.line}` }}>
-          <NavBtn id="documents" Icon={LayoutGrid} label="Documents" />
-          <NavBtn id="layers" Icon={Layers} label="Layers" />
+          {/* The screen ids stay `documents`/`layers` — they're wired through props, the tour's
+              anchors and the review round-trip. Only what the user reads changed. */}
+          <NavBtn id="documents" Icon={Inbox} label="Inbox" />
+          <NavBtn id="layers" Icon={Library} label="Knowledge Hub" />
         </div>
       </div>
       <div className="flex items-center gap-3">
-        {/* the scanner: how many documents it found in the last 48 hours, and the way into its panel */}
+        {/* replay the walkthrough — the tour auto-runs on sign-in, this is for picking it up mid-session */}
+        <button onClick={onTour} title="Take the tour again"
+          className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors"
+          style={{ border: `1px solid ${T.line2}`, background: "#fff", color: T.muted }}>
+          <Compass size={13} /> Take the tour
+        </button>
+        {/* the scanner: how many documents it found in the past 24 hours, and the way into its panel */}
         <AgentChip />
         <div className="self-stretch" style={{ width: 1, background: T.line }} />
         <div className="text-xs text-right">
