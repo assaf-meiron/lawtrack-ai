@@ -155,6 +155,38 @@ class PayPolicy(Base):
         """Documents that are editions of this layer (newest first)."""
         return sorted(self.documents, key=lambda d: d.created_at or d.id, reverse=True)
 
+    @property
+    def provenance(self) -> dict[str, dict]:
+        """Per-field provenance: capability code → the clause a configured value came from.
+
+        `config` holds the values the engine consumes; this is the answer to "why is this number what
+        it is". It walks the chain the product is built on — Document → Finding → committed value —
+        and keys it by capability code, the same key `config` uses, so the Layers view can put the
+        citation next to the setting without a second request.
+
+        Only findings that were approved *and* committed to a version count. A proposal a reviewer
+        hasn't accepted has not earned the right to explain a live configuration value, and an
+        approved-but-uncommitted one isn't in `config` yet either. Newest commit wins when two
+        editions of the same instrument both set a field.
+        """
+        out: dict[str, dict] = {}
+        for doc in sorted(self.documents, key=lambda d: d.created_at or d.id):
+            for f in doc.findings or []:
+                code = f.capability_code or f.clause_family
+                if not code or f.review_status != ReviewStatus.approved or f.committed_version is None:
+                    continue
+                out[code] = {
+                    "document_id": doc.id,
+                    "document_title": doc.title,
+                    "clause_ref": f.clause_ref,
+                    "page": f.page,
+                    "source_quote": f.source_quote,
+                    "approver": f.reviewer_name or f.reviewer,
+                    "reviewed_at": f.reviewed_at,
+                    "committed_version": f.committed_version,
+                }
+        return out
+
 
 class PolicyVersion(Base):
     """An immutable snapshot of a layer's config, produced each time a document is finalized."""

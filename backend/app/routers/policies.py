@@ -12,12 +12,23 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from .. import pay_policy_schema
 from ..db import get_db
 from ..models import LayerType, PayPolicy, User
 from ..schemas import PayPolicyCreate, PayPolicyDetail, PayPolicyOut
 from ..security import get_current_user
 
 router = APIRouter(prefix="/api/policies", tags=["policies"])
+
+# The pay-policy tab/field schema, served so the UI can label a config by what a reviewer sees in the
+# product ("Daily overtime premium") instead of the internal capability code ("OT/d"). Static, and
+# identical for every layer, so it's its own route rather than repeated in each policy payload.
+schema_router = APIRouter(prefix="/api/pay-policy-schema", tags=["policies"])
+
+
+@schema_router.get("")
+def get_pay_policy_schema(_: User = Depends(get_current_user)):
+    return {"tabs": pay_policy_schema.TABS, "fields": pay_policy_schema.FIELDS}
 
 
 def _slugify(name: str) -> str:

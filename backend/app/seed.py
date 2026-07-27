@@ -197,6 +197,17 @@ def _synthetic_layers() -> list[dict]:
     return out
 
 
+# The demo inbox opens with exactly five documents — one per country, so the default
+# "cards · by country" view reads as five flags and the reviewer's queue looks tractable
+# rather than like a backlog. The rest of `DOCS` stays in this file as corpus (the pages and
+# findings are still the transcription of record) but is not inserted; `seed_extra` holds its
+# own half of the five and pushes everything else into the scanner's pool, so `Run scan`
+# genuinely lands a new document during a demo. Widen this set to seed a fuller inbox.
+DEMO_INBOX_DOCS = {
+    "br-botic-2026",   # 🇧🇷 CCT Boticário — ready to review
+    "de-eh-2026",      # 🇩🇪 Tarifvertrag Einzelhandel NRW — reviewed, committed as version 1
+}
+
 # Initial status per document (prototype `statuses` map).
 STATUSES = {
     "br-cct-sp-2026": "ready",
@@ -856,6 +867,8 @@ def seed_if_empty(db, log) -> None:
 
     n_docs = n_findings = n_rules = 0
     for doc_key, meta in DOCS.items():
+        if doc_key not in DEMO_INBOX_DOCS:
+            continue  # corpus, not inbox — see DEMO_INBOX_DOCS
         status = _STATUS[STATUSES[doc_key]]
         is_reviewed = status == DocStatus.reviewed
 

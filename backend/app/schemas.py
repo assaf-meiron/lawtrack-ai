@@ -90,8 +90,22 @@ class EditionBrief(ORMModel):
     created_at: datetime
 
 
+class ConfigProvenance(ORMModel):
+    """Why one configured value is what it is — the clause behind it (see `PayPolicy.provenance`)."""
+    document_id: uuid.UUID
+    document_title: str
+    clause_ref: Optional[str] = None
+    page: int = 0
+    source_quote: str
+    approver: Optional[str] = None
+    reviewed_at: Optional[datetime] = None
+    committed_version: Optional[int] = None
+
+
 class PayPolicyDetail(PayPolicyOut):
     config: dict[str, Any] = {}
+    # keyed by capability code, the same key `config` uses
+    provenance: dict[str, ConfigProvenance] = {}
     versions: list[PolicyVersionOut] = []
     unsupported: list[UnsupportedCalculationOut] = []
     editions: list[EditionBrief] = []

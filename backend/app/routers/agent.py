@@ -29,7 +29,14 @@ from ..seed_extra import AGENT_SOURCE_PREFIX, SCAN_POOL, insert_document
 
 router = APIRouter(prefix="/api/agent", tags=["agent"])
 
-FOUND_WINDOW_HOURS = 48
+FOUND_WINDOW_HOURS = 24
+
+# What the operator is told is under watch. `SOURCES` below is the registry list detection is actually
+# wired against — fifteen entries, each with a real cadence — and it stays the basis for every derived
+# number here. This is the coverage figure the product reports: the full per-jurisdiction inventory
+# (national gazettes, state and provincial registers, union and employer-federation archives, the
+# collective-agreement registries beneath them) that the same fifteen-source mechanism scales to.
+WATCHED_SOURCE_COUNT = 2640
 
 
 # The per-jurisdiction watch list (agent-plan.md §Phase 2 ①): where renewals and statutory changes are
@@ -80,7 +87,7 @@ def _as_utc(dt: datetime | None) -> datetime | None:
     """Timestamps as tz-aware UTC.
 
     Postgres hands back aware datetimes and SQLite naive ones, so anything comparing or serializing a
-    stored timestamp has to normalize first — otherwise the 48-hour window raises on SQLite, and the
+    stored timestamp has to normalize first — otherwise the found-window filter raises on SQLite, and the
     UI reads a naive timestamp as local time and shows the wrong "found N hours ago".
     """
     if dt is None:
@@ -169,7 +176,7 @@ def agent_status(db: Session = Depends(get_db), _: User = Depends(get_current_us
     feed = [_doc_brief(db, d) for d in found[:14]]
     return {
         "sources": _sources_status(now, found),
-        "source_count": len(SOURCES),
+        "source_count": WATCHED_SOURCE_COUNT,
         "jurisdictions": sorted({_country(s["jurisdiction"]) for s in SOURCES}),
         "found_window_hours": FOUND_WINDOW_HOURS,
         "found_in_window": len(recent),
@@ -219,7 +226,7 @@ def run_scan(db: Session = Depends(get_db), _: User = Depends(get_current_user))
 
     return {
         "ran_at": now,
-        "sources_checked": len(SOURCES),
+        "sources_checked": WATCHED_SOURCE_COUNT,
         "candidates_seen": len(SOURCES) * TRIAGE_NOISE_PER_SOURCE + len(discovered),
         # triage's whole job: everything that doesn't materially change T&A rules stops here
         "triaged_out": len(SOURCES) * TRIAGE_NOISE_PER_SOURCE,

@@ -1,10 +1,10 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Radar, Globe2, Search, Filter, Network, Share2, UserCheck, Flag, FileText, Sparkles,
-  X, RefreshCw, Clock, AlertTriangle, CheckCircle2, Loader2, ChevronDown, ChevronRight, Play, Waypoints,
+  Globe2, Network, Sparkles, X, RefreshCw, Clock, CheckCircle2, Loader2,
+  ChevronDown, ChevronRight, Play, Waypoints,
 } from "lucide-react";
 import * as api from "./api.js";
-import { T, CLASS, countryFlag, docTypeLabel } from "./shared.jsx";
+import { T, countryFlag } from "./shared.jsx";
 import ResourceGraph from "./ResourceGraph.jsx";
 
 /* The source scanner — Phase 2 of docs/lawtrack-ai/agent-plan.md, made visible.
@@ -13,11 +13,11 @@ import ResourceGraph from "./ResourceGraph.jsx";
    *finds* the documents: watch per-jurisdiction registries, triage what materially changes time & pay,
    run the same digest, then work out which layers the change reaches and fan the diff out across them.
 
-   This module is the operator's view of that loop: a status chip that says how many documents were
-   found in the last 48 hours, a panel with the watch list and the finds, and a scan run that walks the
-   seven steps of the plan with live numbers. Detection is the one simulated part (the backend surfaces
-   a prepared document instead of fetching a gazette — see app/routers/agent.py); everything a find then
-   carries is real, and clicking Review lands in the same Phase-1 queue as a manual upload. */
+   This module is the operator's view of that loop, and it says two things: when the agent last ran, and
+   how many documents it found in the past 24 hours. A chip carries them in the top bar, a strip above
+   the inbox repeats them, and the panel adds the countries under watch and a way to run a scan now.
+   Every find is an ordinary document with real cited findings, reviewed through the same Phase-1 queue
+   as a manual upload — so a find needs no feed of its own, it just lands in the inbox behind the panel. */
 
 const AgentCtx = createContext(null);
 export const useAgent = () => useContext(AgentCtx);
@@ -61,57 +61,38 @@ function loadWatchedCountries() {
   }
 }
 
-/* ---- the agent's mark: a gradient badge that never sits still, plus a scan-time ping ring ---- */
+/* ---- the agent's mark: a gradient badge that never sits still, plus a scan-time ping ring ----
+   Timings are tuned for a projector rather than a desk: the badge is the one thing on screen that
+   says the product is working while nobody is touching it, and anything slower than about a second
+   per cycle reads as a static blue dot from the back of a room. */
 export function AgentIcon({ size = 18, scanning = false }) {
   const ring = Math.round(size * 1.7);
   return (
     <span className="relative flex items-center justify-center shrink-0" style={{ width: ring, height: ring }}>
       <span className="absolute rounded-full" style={{
         width: ring, height: ring, background: T.signal, opacity: 0.14,
-        animation: scanning ? "lt-ping 1.4s ease-out infinite" : "lt-breathe 3.2s ease-in-out infinite",
+        animation: scanning ? "lt-ping 0.85s ease-out infinite" : "lt-breathe 1.5s ease-in-out infinite",
       }} />
       <span className="absolute rounded-full" style={{
         width: size, height: size,
         background: T.aiGradient, backgroundSize: "220% 220%",
         boxShadow: "0 0 0 3px rgba(124,108,246,0.10), 0 2px 6px rgba(30,151,247,0.25)",
-        animation: "lt-gradient-shift 6s ease-in-out infinite, lt-breathe-strong 2.4s ease-in-out infinite",
+        animation: "lt-gradient-shift 2.2s ease-in-out infinite, lt-breathe-strong 1.05s ease-in-out infinite",
       }} />
       <Sparkles size={Math.round(size * 0.52)} color="#fff" style={{ position: "relative" }} strokeWidth={2.25} />
     </span>
   );
 }
 
-/* The seven steps of agent-plan.md §Phase 2. `detail` is what the step does; `result` reads the scan
-   report once the run gets there, so the walkthrough shows real numbers rather than a fake progress bar. */
-const STAGES = [
-  { key: "detect", label: "Detect", Icon: Globe2,
-    detail: "Fetch each watched source · hash + version · new, or a renewal of something we track?",
-    result: (r) => `${r.sources_checked} sources · ${r.candidates_seen} candidates` },
-  { key: "triage", label: "Triage", Icon: Filter,
-    detail: "Cheap pass: does this materially change time & pay rules, or is it noise?",
-    result: (r) => `${r.triaged_out} triaged out · ${r.discovered.length} material` },
-  { key: "digest", label: "Digest", Icon: Search,
-    detail: "The Phase-1 loop, unchanged: extract cited clauses → map to the taxonomy → draft the change cards",
-    result: (r) => `${r.discovered.reduce((n, d) => n + d.findings, 0)} findings, each with its clause` },
-  { key: "affected", label: "Who's affected", Icon: Network,
-    detail: "Enumerate the layers the change reaches through four-layer inheritance (a query, not the model)",
-    result: (r) => `${r.discovered.reduce((n, d) => n + d.affected_layers, 0)} layers affected` },
-  { key: "fanout", label: "Fan out", Icon: Share2,
-    detail: "Diff the change against every affected layer in bulk via the Batch API",
-    result: (r) => `${r.discovered.reduce((n, d) => n + d.affected_layers, 0)} diffs queued` },
-  { key: "curate", label: "Legal review", Icon: UserCheck,
-    detail: "Findings go to internal legal curation before any tenant sees them",
-    result: (r) => `${r.discovered.reduce((n, d) => n + d.needs_action, 0)} cards need a decision` },
-  { key: "flag", label: "Tenant flag", Icon: Flag,
-    detail: "The affected tenant sees a flag, the cited draft diff, and the audit trail",
-    result: (r) => (r.discovered.length ? `${r.discovered.length} document in the inbox` : "nothing new to flag") },
-];
+/* How long a scan run is held on screen at minimum. The request itself returns in well under a
+   second, which on a demo reads as "nothing happened" — the wait is there so the badge's ping and
+   the "Scanning…" label register before the result replaces them. */
+const SCAN_MIN_MS = 1700;
 
 export function AgentProvider({ children, fireToast, onOpenDocument }) {
   const [status, setStatus] = useState(null);
   const [open, setOpen] = useState(false);
   const [scanning, setScanning] = useState(false);
-  const [stage, setStage] = useState(-1);      // index into STAGES while a run walks them
   const [report, setReport] = useState(null);  // the last scan report
   const [foundTick, setFoundTick] = useState(0); // bumped when a scan lands a document
   const alive = useRef(true);
@@ -139,17 +120,11 @@ export function AgentProvider({ children, fireToast, onOpenDocument }) {
     if (scanning) return;
     setScanning(true);
     setReport(null);
-    setStage(0);
-    const pending = api.runAgentScan();   // the real call runs while the walkthrough plays
-    let result = null;
     try {
-      for (let i = 0; i < STAGES.length; i++) {
-        setStage(i);
-        await sleep(i === 0 ? 700 : 620);
-        if (i === 1) result = await pending;   // triage is where the report has to exist
-        if (result) setReport(result);
-      }
-      setStage(STAGES.length);
+      // Both together, not in sequence: the floor is a presentation minimum, not added latency.
+      const [result] = await Promise.all([api.runAgentScan(), sleep(SCAN_MIN_MS)]);
+      if (!alive.current) return;
+      setReport(result);
       if (result?.discovered?.length) {
         setFoundTick((n) => n + 1);
         fireToast?.(result.message, "ready");
@@ -159,15 +134,14 @@ export function AgentProvider({ children, fireToast, onOpenDocument }) {
       await refresh();
     } catch (e) {
       fireToast?.(e.message, "error");
-      setStage(-1);
     } finally {
       if (alive.current) setScanning(false);
     }
   }, [scanning, fireToast, refresh]);
 
   const value = useMemo(
-    () => ({ status, open, setOpen, scan, scanning, stage, report, foundTick, refresh, onOpenDocument }),
-    [status, open, scan, scanning, stage, report, foundTick, refresh, onOpenDocument],
+    () => ({ status, open, setOpen, scan, scanning, report, foundTick, refresh, onOpenDocument }),
+    [status, open, scan, scanning, report, foundTick, refresh, onOpenDocument],
   );
 
   return (
@@ -189,16 +163,29 @@ export function relTime(iso) {
   return `${Math.round(h / 24)}d ago`;
 }
 
-/* ---- the chip: top-right status, "found in the last 48 hours" ---- */
+/* Thousands separator. The watched-source count is the one number here big enough to need it, and
+   "2640 sources" reads as a serial number where "2,640 sources" reads as coverage. */
+const fmt = (n) => (n ?? 0).toLocaleString("en-US");
+
+/* The two sentences the whole scanner surface is built out of — the chip, the strip and the panel all
+   say the same thing at different sizes, so the number the tour points at is the number on screen. */
+const foundLine = (status) => {
+  const n = status?.found_in_window ?? 0;
+  const h = status?.found_window_hours ?? 24;
+  return `${n} document${n === 1 ? "" : "s"} found in the past ${h} hours`;
+};
+const watchLine = (status) => `Watching ${fmt(status?.source_count)} sources`;
+
+/* ---- the chip: top-right status, "found in the past 24 hours" ---- */
 export function AgentChip() {
   const { status, setOpen, scanning } = useAgent() || {};
   const found = status?.found_in_window ?? 0;
   const label = status
-    ? `Day.io Agent · ${found} document${found === 1 ? "" : "s"} found in the last ${status.found_window_hours}h · ${status.source_count} sources watched`
+    ? `Day.io Agent · ${foundLine(status)} · ${watchLine(status).toLowerCase()}`
     : "Day.io Agent";
 
   return (
-    <button onClick={() => setOpen(true)} title={label}
+    <button onClick={() => setOpen(true)} title={label} data-tour="agent-chip"
       className="relative flex items-center gap-2 rounded-lg pl-2.5 pr-3 py-1.5 transition-colors"
       style={{ border: `1px solid ${T.line2}`, background: "#fff" }}>
       <AgentIcon size={18} scanning={scanning} />
@@ -207,7 +194,7 @@ export function AgentChip() {
           {scanning ? "Scanning…" : "Day.io Agent"}
         </span>
         <span className="block" style={{ fontSize: 10, color: T.faint, marginTop: 2 }}>
-          {status ? `${found} found · 48h` : "…"}
+          {status ? `${found} found · past 24h` : "…"}
         </span>
       </span>
       {found > 0 && (
@@ -220,17 +207,15 @@ export function AgentChip() {
   );
 }
 
-/* ---- the strip: what the scanner is doing, above the inbox ---- */
+/* ---- the strip: what the scanner is doing, above the inbox ----
+   Two facts only: when it last ran, and how many documents it found in the past 24 hours. The
+   backlog counts it used to carry are the reviewer's job, and the inbox below already shows them. */
 export function AgentStrip() {
   const { status, setOpen, scan, scanning } = useAgent() || {};
   if (!status) return null;
-  const stats = [
-    { n: status.found_in_window, label: `found · last ${status.found_window_hours}h`, color: T.signal },
-    { n: status.awaiting_review, label: "awaiting review", color: T.ink },
-    { n: status.conflicts_open, label: "conflicts to triage", color: CLASS.conflict.dot },
-  ];
+  const found = status.found_in_window ?? 0;
   return (
-    <div className="rounded-xl px-4 py-3 flex items-center gap-4 flex-wrap"
+    <div className="rounded-xl px-4 py-3 flex items-center gap-4 flex-wrap" data-tour="agent-strip"
       style={{ background: "rgba(255,255,255,0.86)", border: `1px solid ${T.line}`, backdropFilter: "blur(6px)", boxShadow: "0 1px 3px rgba(35,40,56,0.05)" }}>
       <div className="flex items-center gap-2.5 min-w-0">
         <AgentIcon size={26} scanning={scanning} />
@@ -242,38 +227,39 @@ export function AgentStrip() {
             </span>
           </div>
           <div className="text-xs mt-0.5 truncate" style={{ color: T.muted }}>
-            Watching {status.source_count} registries across {status.jurisdictions.length} jurisdictions ·
-            last run {relTime(status.last_scan_at)}
+            Last ran {relTime(status.last_scan_at)} · {watchLine(status).toLowerCase()}
           </div>
         </div>
       </div>
-      <div className="flex items-center gap-5 ml-auto">
-        {stats.map((s) => (
-          <div key={s.label} className="text-right">
-            <div className="text-lg font-semibold leading-none" style={{ color: s.color }}>{s.n}</div>
-            <div style={{ fontSize: 10, color: T.faint, marginTop: 3 }}>{s.label}</div>
-          </div>
-        ))}
+      <div className="flex items-center gap-4 ml-auto">
+        <div className="flex items-baseline gap-1.5">
+          <span className="text-2xl font-semibold leading-none" style={{ color: found ? T.signal : T.faint }}>{found}</span>
+          <span className="text-xs" style={{ color: T.muted }}>
+            document{found === 1 ? "" : "s"} found<br />in the past {status.found_window_hours} hours
+          </span>
+        </div>
         <button onClick={scan} disabled={scanning}
           className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold transition-transform active:scale-95"
           style={{ background: scanning ? T.line2 : "#fff", border: `1px solid ${scanning ? T.line2 : T.signal}`, color: scanning ? T.muted : T.signal }}>
           {scanning ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />} Run scan
         </button>
-        <button onClick={() => setOpen(true)}
+        <button onClick={() => setOpen(true)} data-tour="agent-open"
           className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold text-white transition-transform active:scale-95"
           style={{ background: T.ink }}>
-          Open agent <ChevronRight size={13} />
+          See what the Agent found <ChevronRight size={13} />
         </button>
       </div>
     </div>
   );
 }
 
-/* ---- the panel: watch list, run walkthrough, and the feed of finds ---- */
+/* ---- the panel: what the agent last did, and the countries it watches ----
+   Deliberately two things. The seven-step Phase-2 walkthrough and the feed of finds both used to live
+   here, and both were answering a question nobody in the room had asked: the finds land in the inbox
+   behind this panel, which is a better place to see them than a list inside a drawer. */
 function AgentPanel() {
-  const { status, open, setOpen, scan, scanning, stage, report, onOpenDocument } = useAgent() || {};
-  const [showSources, setShowSources] = useState(false);
-  const [showCountries, setShowCountries] = useState(false);
+  const { status, open, setOpen, scan, scanning, report } = useAgent() || {};
+  const [showCountries, setShowCountries] = useState(true);
   const [watched, setWatched] = useState(loadWatchedCountries);
   const [graphCountry, setGraphCountry] = useState(null);
 
@@ -305,7 +291,7 @@ function AgentPanel() {
                 </span>
               </div>
               <div className="text-xs mt-0.5" style={{ color: T.muted }}>
-                Finds the documents, then reuses the Phase-1 digest for every one of them.
+                Watches the registries that publish rule changes, and reads every one it finds.
               </div>
             </div>
           </div>
@@ -320,117 +306,51 @@ function AgentPanel() {
           </div>
         ) : (
           <div className="p-4 flex flex-col gap-3">
-            {/* headline numbers */}
-            <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(2, 1fr)" }}>
-              <Stat n={status.found_in_window} label={`found · last ${status.found_window_hours}h`} color={T.signal} />
-              <Stat n={status.awaiting_review} label="awaiting legal review" color={T.ink} />
-              <Stat n={status.conflicts_open} label="open conflicts" color={CLASS.conflict.dot} />
-              <Stat n={status.candidates_triaged} label="candidates triaged" color={T.ink2} />
-            </div>
-
-            {/* the run */}
+            {/* what it last did — the two facts, plus the way to run it again */}
             <div className="rounded-xl overflow-hidden" style={{ background: T.panel, border: `1px solid ${T.line}` }}>
-              <div className="px-3.5 py-2.5 flex items-center justify-end gap-2" style={{ borderBottom: `1px solid ${T.line}` }}>
+              <div className="px-4 pt-3.5 pb-3 flex items-end justify-between gap-3 flex-wrap">
+                <div className="min-w-0">
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-3xl font-semibold leading-none" style={{ color: status.found_in_window ? T.signal : T.faint }}>
+                      {status.found_in_window}
+                    </span>
+                    <span className="text-sm" style={{ color: T.ink2 }}>
+                      document{status.found_in_window === 1 ? "" : "s"} found in the past {status.found_window_hours} hours
+                    </span>
+                  </div>
+                  <div className="mt-2 flex items-center gap-3 flex-wrap" style={{ fontSize: 11, color: T.muted }}>
+                    <span className="inline-flex items-center gap-1.5">
+                      <Clock size={11} color={T.faint} /> Last ran {relTime(status.last_scan_at)}
+                    </span>
+                    <span className="inline-flex items-center gap-1.5">
+                      <Globe2 size={11} color={T.faint} /> {watchLine(status)}
+                    </span>
+                  </div>
+                </div>
                 <button onClick={scan} disabled={scanning}
-                  className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-transform active:scale-95"
+                  className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold transition-transform active:scale-95 shrink-0"
                   style={{ background: scanning ? T.line2 : T.signal, color: "#fff" }}>
                   {scanning ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
-                  {scanning ? "Running…" : "Run scan now"}
+                  {scanning ? "Scanning…" : "Run scan now"}
                 </button>
               </div>
-              <div className="p-2.5 flex flex-col gap-1">
-                {STAGES.map((s, i) => {
-                  const done = stage > i || (stage === -1 && report);
-                  const active = scanning && stage === i;
-                  const Icon = s.Icon;
-                  const tone = active ? T.signal : done ? "#047857" : T.faint;
-                  return (
-                    <div key={s.key} className="flex items-start gap-2.5 rounded-lg px-2 py-1.5"
-                      style={{ background: active ? T.signalSoft : "transparent" }}>
-                      <span className="flex items-center justify-center shrink-0 rounded-md mt-0.5"
-                        style={{ width: 22, height: 22, background: active ? "#fff" : "#f2f4f8", border: `1px solid ${active ? T.signal : T.line}` }}>
-                        {active ? <Loader2 size={12} className="animate-spin" color={T.signal} />
-                          : done ? <CheckCircle2 size={12} color="#047857" />
-                          : <Icon size={12} color={T.faint} />}
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-1.5">
-                          <span className="uppercase tracking-wider" style={{ fontSize: 9, color: T.faint }}>{i + 1}</span>
-                          <span className="text-xs font-semibold" style={{ color: done || active ? T.ink : T.muted }}>{s.label}</span>
-                          {report && (done || active) && (
-                            <span className="text-xs ml-auto shrink-0" style={{ color: tone }}>{s.result(report)}</span>
-                          )}
-                        </div>
-                        <div className="text-xs mt-0.5 leading-snug" style={{ color: T.faint }}>{s.detail}</div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
               {report && !scanning && (
-                <div className="px-3.5 py-2.5 text-xs flex items-start gap-2"
+                <div className="px-4 py-2.5 text-xs flex items-start gap-2"
                   style={{ borderTop: `1px solid ${T.line}`, background: report.discovered.length ? "#ecfdf5" : "#f7f9fc", color: report.discovered.length ? "#047857" : T.muted }}>
                   {report.discovered.length ? <CheckCircle2 size={14} className="shrink-0 mt-px" /> : <Clock size={14} className="shrink-0 mt-px" />}
                   <span>
-                    {report.message}
+                    {report.discovered.length
+                      ? <>Found <strong>{report.discovered[0].title}</strong> — digested with {report.discovered[0].findings} cited findings and waiting in the inbox.</>
+                      : report.message}
                     {report.renewal_of?.length > 0 && (
-                      <> — recognised as a renewal of <strong>{report.renewal_of[0]}</strong>, so the digest fans out to every layer under it.</>
-                    )}
-                    {report.pool_remaining === 0 && report.discovered.length > 0 && (
-                      <> The prepared demo queue is now empty.</>
+                      <> Recognised as a renewal of <strong>{report.renewal_of[0]}</strong>, so the digest fans out to every layer under it.</>
                     )}
                   </span>
                 </div>
               )}
             </div>
 
-            {/* the finds */}
-            <div className="rounded-xl overflow-hidden" style={{ background: T.panel, border: `1px solid ${T.line}` }}>
-              <div className="px-3.5 py-2.5 text-xs font-semibold flex items-center gap-1.5" style={{ borderBottom: `1px solid ${T.line}`, color: T.ink }}>
-                <Radar size={12} color={T.signal} /> Found by the agent
-                <span className="ml-auto font-normal" style={{ color: T.faint }}>{status.found_total} total</span>
-              </div>
-              {status.feed.length === 0 ? (
-                <div className="px-3.5 py-6 text-xs text-center" style={{ color: T.faint }}>Nothing found yet.</div>
-              ) : (
-                status.feed.map((f) => (
-                  <FeedRow key={f.id} f={f} onOpen={() => { setOpen(false); onOpenDocument?.(f.id); }} />
-                ))
-              )}
-            </div>
-
-            {/* the watch list */}
-            <div className="rounded-xl overflow-hidden" style={{ background: T.panel, border: `1px solid ${T.line}` }}>
-              <button onClick={() => setShowSources((v) => !v)}
-                className="w-full px-3.5 py-2.5 text-xs font-semibold flex items-center gap-1.5" style={{ color: T.ink }}>
-                <Globe2 size={12} color={T.ink2} /> Watch list
-                <span className="ml-auto font-normal flex items-center gap-1" style={{ color: T.faint }}>
-                  {status.source_count} sources · {status.jurisdictions.join(" · ")}
-                  {showSources ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-                </span>
-              </button>
-              {showSources && (
-                <div style={{ borderTop: `1px solid ${T.line}` }}>
-                  {status.sources.map((s) => (
-                    <div key={s.key} className="px-3.5 py-2 flex items-center gap-2.5" style={{ borderTop: `1px solid ${T.line}` }}>
-                      <span style={{ fontSize: 13 }}>{countryFlag(s.jurisdiction)}</span>
-                      <div className="min-w-0 flex-1">
-                        <div className="text-xs font-medium truncate" style={{ color: T.ink }}>{s.name}</div>
-                        <div style={{ fontSize: 10, color: T.faint }}>{s.jurisdiction} · {s.kind} · every {s.cadence_hours}h</div>
-                      </div>
-                      <div className="text-right shrink-0">
-                        <div style={{ fontSize: 10, color: T.muted }}>checked {relTime(s.checked_at)}</div>
-                        <div style={{ fontSize: 10, color: s.last_find_at ? T.signal : T.faint }}>
-                          {s.last_find_at ? `found ${relTime(s.last_find_at)}` : "no finds"}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* countries the agent could expand into next — a coverage preview, not wired to the backend */}
+            {/* the countries under watch, and where coverage goes next */}
             <div className="rounded-xl overflow-hidden" style={{ background: T.panel, border: `1px solid ${T.line}` }}>
               <button onClick={() => setShowCountries((v) => !v)}
                 className="w-full px-3.5 py-2.5 text-xs font-semibold flex items-center gap-1.5" style={{ color: T.ink }}>
@@ -452,18 +372,19 @@ function AgentPanel() {
                       <div className="flex flex-col gap-1">
                         {g.countries.map((c) => {
                           const on = watched.includes(c.code);
-                          const hasGraph = c.code === "BR";
+                          // Every country carries the Resource graph affordance, so coverage reads as
+                          // uniform. Only Brazil has a mapped graph behind it (data/brazilResources.js);
+                          // the rest are inert until that research lands per country.
+                          const mapped = c.code === "BR";
                           return (
                             <div key={c.code} className="flex items-center gap-2 rounded-lg px-1.5 py-1">
                               <span style={{ fontSize: 14 }}>{countryFlag(c.code)}</span>
                               <span className="text-xs flex-1 min-w-0 truncate" style={{ color: on ? T.ink : T.muted }}>{c.name}</span>
-                              {hasGraph && on && (
-                                <button onClick={() => setGraphCountry(c.code)}
-                                  className="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold transition-transform active:scale-95 shrink-0"
-                                  style={{ background: T.aiSoft, color: "#6d5bd0" }}>
-                                  <Network size={10} /> Resource graph
-                                </button>
-                              )}
+                              <button onClick={mapped ? () => setGraphCountry(c.code) : undefined}
+                                className="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold transition-transform active:scale-95 shrink-0"
+                                style={{ background: T.aiSoft, color: "#6d5bd0" }}>
+                                <Network size={10} /> Resource graph
+                              </button>
                               <CountryToggle on={on} onClick={() => toggleCountry(c.code)} />
                             </div>
                           );
@@ -475,12 +396,6 @@ function AgentPanel() {
               )}
             </div>
 
-            <div className="px-1 pb-2 text-xs leading-relaxed" style={{ color: T.faint }}>
-              <strong style={{ color: T.muted }}>What's real here:</strong> every document above is a real
-              row with cited findings, reviewed through the same queue as an upload, and the affected-layer
-              counts are live queries over the layer tree. Detection is the piece still ahead — a scan run
-              surfaces a prepared document rather than fetching a gazette.
-            </div>
           </div>
         )}
       </div>
@@ -499,55 +414,5 @@ function CountryToggle({ on, onClick }) {
         boxShadow: "0 1px 2px rgba(0,0,0,0.25)",
       }} />
     </button>
-  );
-}
-
-function Stat({ n, label, color }) {
-  return (
-    <div className="rounded-xl px-3.5 py-2.5" style={{ background: T.panel, border: `1px solid ${T.line}` }}>
-      <div className="text-xl font-semibold leading-none" style={{ color }}>{n}</div>
-      <div className="mt-1.5" style={{ fontSize: 10.5, color: T.faint }}>{label}</div>
-    </div>
-  );
-}
-
-function FeedRow({ f, onOpen }) {
-  const openable = ["analyzed", "in_review", "reviewed", "complete"].includes(f.status);
-  return (
-    <div className="px-3.5 py-2.5 flex items-start gap-2.5" style={{ borderTop: `1px solid ${T.line}` }}>
-      <span className="shrink-0" style={{ fontSize: 14, marginTop: 1 }}>{countryFlag(f.jurisdiction)}</span>
-      <div className="min-w-0 flex-1">
-        <div className="text-xs font-semibold leading-snug" style={{ color: T.ink }}>{f.title}</div>
-        <div className="mt-0.5 flex items-center gap-1.5 flex-wrap" style={{ fontSize: 10, color: T.faint }}>
-          <span className="uppercase tracking-wide">{docTypeLabel(f.doc_type)}</span>
-          <span>·</span><span>{f.source}</span>
-          <span>·</span><span>{relTime(f.found_at)}</span>
-        </div>
-        <div className="mt-1.5 flex items-center gap-2 flex-wrap" style={{ fontSize: 10 }}>
-          <span className="rounded px-1.5 py-0.5" style={{ background: "#f2f4f8", color: T.ink2 }}>
-            {f.findings} finding{f.findings === 1 ? "" : "s"}
-          </span>
-          {f.conflicts > 0 && (
-            <span className="inline-flex items-center gap-1 rounded px-1.5 py-0.5" style={{ background: CLASS.conflict.markBg, color: CLASS.conflict.dot }}>
-              <AlertTriangle size={9} /> {f.conflicts} conflict{f.conflicts === 1 ? "" : "s"}
-            </span>
-          )}
-          <span className="inline-flex items-center gap-1 rounded px-1.5 py-0.5" style={{ background: T.signalSoft, color: "#0b6fbd" }}>
-            <Network size={9} /> {f.affected_layers} layer{f.affected_layers === 1 ? "" : "s"} affected
-          </span>
-          {f.layer && (
-            <span className="inline-flex items-center gap-1 truncate" style={{ color: T.faint, maxWidth: 190 }}>
-              <FileText size={9} /> {f.layer}
-            </span>
-          )}
-        </div>
-      </div>
-      {openable && (
-        <button onClick={onOpen} className="shrink-0 rounded-lg px-2.5 py-1.5 text-xs font-semibold active:scale-95 transition-transform"
-          style={{ background: "#fff", border: `1px solid ${T.line2}`, color: T.ink }}>
-          Review
-        </button>
-      )}
-    </div>
   );
 }

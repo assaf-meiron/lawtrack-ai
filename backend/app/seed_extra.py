@@ -11,7 +11,7 @@ Two things it adds:
   compliance* rather than merely changing it.
 * **Discovery provenance.** A document found by the Phase-2 scanner records the registry it came from
   in `source`, prefixed `Agent · ` (`AGENT_SOURCE_PREFIX`), and its `created_at` is when the scanner
-  found it. That's the whole convention — the UI derives "N documents found in the last 48 hours"
+  found it. That's the whole convention — the UI derives "N documents found in the past 24 hours"
   from those two fields, so nothing here is a mock the frontend has to be told about separately.
 """
 from __future__ import annotations
@@ -44,8 +44,8 @@ AGENT_SOURCE_PREFIX = "Agent · "
 
 
 # --- the corpus ---------------------------------------------------------------
-# `found_h` is hours before seed time (the scan that surfaced it) — the spread straddles the 48-hour
-# window on purpose, so the badge count is a real subset of the feed rather than everything in it.
+# `found_h` is hours before seed time (the scan that surfaced it) — the spread straddles the reported
+# window on purpose, so the badge count is a real subset of the corpus rather than everything in it.
 
 EXTRA_DOCS = [
     {
@@ -408,6 +408,18 @@ _EXTRA_CLASSIFICATION = dict(_CLASSIFICATION)
 _EXTRA_CLASSIFICATION["adjust_premium"] = Classification.adjust
 
 
+# --- demo curation ------------------------------------------------------------
+# This pass contributes three of the five documents the inbox opens with (`seed.DEMO_INBOX_DOCS`
+# holds the other two): one per country, so "cards · by country" reads as five distinct flags and
+# the queue looks like a morning's work rather than a backlog. All three were found inside the
+# 24-hour window the agent reports on, which is what makes the chip's count non-zero on first load.
+DEMO_INBOX_TITLES = {
+    "California AB 2288 — Meal Period Premium Recovery",              # 🇺🇸 found 9h ago
+    "General Retail Industry Award MA000004 — Annual Wage Review 2026",  # 🇦🇺 found 5h ago
+    "Décret durée du travail — repos quotidien et contingent",         # 🇫🇷 found 12h ago, mid-review
+}
+
+
 # --- the scan pool ------------------------------------------------------------
 # Held back from the startup seed and surfaced one at a time by `POST /api/agent/scan`, so a scan run
 # genuinely lands a new document in the inbox instead of animating over a static list. All three are
@@ -415,7 +427,7 @@ _EXTRA_CLASSIFICATION["adjust_premium"] = Classification.adjust
 # detection has to answer "is this new, or a new edition of something we track?" and the answer fans
 # the digest out to every tenant under that layer.
 
-SCAN_POOL = [
+_RENEWALS = [
     {
         "title": "CCT Comércio Varejista — São Paulo 2027/2028",
         "subtitle": "Renovação · reajuste e jornada",
@@ -519,6 +531,11 @@ SCAN_POOL = [
     },
 ]
 
+# The renewals lead, because "is this a new edition of something we already track?" is the Phase-2
+# question worth demonstrating first. Behind them sits every corpus document the curated inbox left
+# out, so the pool doesn't run dry if a demo runs several scans back to back.
+SCAN_POOL = _RENEWALS + [m for m in EXTRA_DOCS if m["title"] not in DEMO_INBOX_TITLES]
+
 
 def insert_document(db, meta: dict, found_at: datetime, policy: PayPolicy | None) -> Document:
     """Materialize one corpus entry (document + its findings) as of `found_at`. Does not commit."""
@@ -574,7 +591,11 @@ def insert_document(db, meta: dict, found_at: datetime, policy: PayPolicy | None
 
 
 def seed_extra_documents(db, log) -> None:
-    """Add any of `EXTRA_DOCS` that isn't in the database yet. Safe to call on every startup."""
+    """Add the curated inbox share of `EXTRA_DOCS` if it isn't in the database yet.
+
+    Safe to call on every startup. Everything outside `DEMO_INBOX_TITLES` is deliberately skipped —
+    it lives in `SCAN_POOL` instead, so the scanner has something real to find.
+    """
     existing = {t for (t,) in db.query(Document.title).all()}
     policies = {p.key: p for p in db.query(PayPolicy).all()}
     if not policies:
@@ -583,7 +604,7 @@ def seed_extra_documents(db, log) -> None:
     now = datetime.now(timezone.utc)
     n_docs = n_findings = 0
     for meta in EXTRA_DOCS:
-        if meta["title"] in existing:
+        if meta["title"] not in DEMO_INBOX_TITLES or meta["title"] in existing:
             continue
         insert_document(db, meta, now - timedelta(hours=meta["found_h"]), policies.get(meta["policy_key"]))
         n_docs += 1

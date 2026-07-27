@@ -26,7 +26,10 @@ export default function DocumentsScreen({ onOpen, fireToast }) {
   const [docs, setDocs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [groupBy, setGroupBy] = useState("country");
-  const [view, setView] = useState("list"); // 'list' | 'cards' — the list is the working view
+  // Cards grouped by country is the opening view: five flags reads as "here is your world, and it is
+  // under control", which is the first thing the guided tour points at. The list is the working view
+  // once a reviewer is actually grinding through a queue.
+  const [view, setView] = useState("cards"); // 'cards' | 'list'
   const [origin, setOrigin] = useState("all");
   const [uploadOpen, setUploadOpen] = useState(false);
   const [error, setError] = useState(null);
@@ -133,7 +136,7 @@ export default function DocumentsScreen({ onOpen, fireToast }) {
           <div className="flex items-center gap-3 flex-wrap">
             {/* view: detailed list vs cards */}
             <Segmented
-              options={[{ v: "list", label: "List", Icon: List }, { v: "cards", label: "Cards", Icon: LayoutGrid }]}
+              options={[{ v: "cards", label: "Cards", Icon: LayoutGrid }, { v: "list", label: "List", Icon: List }]}
               value={view} onChange={setView}
             />
             {view === "cards" && (
@@ -148,7 +151,7 @@ export default function DocumentsScreen({ onOpen, fireToast }) {
               value={origin} onChange={setOrigin}
             />
           </div>
-          <button onClick={() => setUploadOpen(true)}
+          <button onClick={() => setUploadOpen(true)} data-tour="upload"
             className="flex items-center gap-2 rounded-lg px-3.5 py-2 text-sm font-medium text-white transition-transform active:scale-95"
             style={{ background: T.ink }}>
             <Upload size={16} /> Upload PDF
@@ -192,7 +195,7 @@ export default function DocumentsScreen({ onOpen, fireToast }) {
             <DocTable docs={visible} landed={landed} onOpen={onOpen} onAnalyze={analyze} onDelete={remove} />
           </div>
         ) : (
-          <div className="px-6 pb-16">
+          <div className="px-6 pb-16" data-tour="inbox">
             {groups.map(([label, ids]) => (
               <div key={label} className="mb-7">
                 <div className="flex items-center gap-2 mb-3">
@@ -306,7 +309,7 @@ function DocCard({ doc, landed, onOpen, onAnalyze, onDelete }) {
         {clickable ? (
           <div className="flex items-center gap-2 shrink-0">
             <MiniCounts c={c} />
-            <button onClick={() => onOpen(doc.id)}
+            <button onClick={() => onOpen(doc.id)} data-tour="review"
               className="rounded-lg px-3 py-1.5 text-xs font-semibold active:scale-95 transition-transform"
               style={doc.status === "reviewed" || doc.status === "complete"
                 ? { background: "#fff", border: `1px solid ${T.line2}`, color: T.ink2 }

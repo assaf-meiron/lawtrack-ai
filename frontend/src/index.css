@@ -15,8 +15,9 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* The agent's two states (see AgentScanner.jsx): a slow breath while it's idle and watching,
-   an outward ping while a scan run is in flight. */
+/* The agent's two states (see AgentScanner.jsx): a quick breath while it's idle and watching,
+   an outward ping while a scan run is in flight. Durations are deliberately short — the badge is
+   the product's "always working" tell, and at demo distance a slow drift reads as a static dot. */
 @keyframes lt-breathe {
   0%, 100% { transform: scale(0.82); opacity: 0.10; }
   50%      { transform: scale(1);    opacity: 0.20; }
@@ -29,7 +30,7 @@ body {
 }
 
 /* The agent's badge never sits still — it breathes continuously regardless of scan state,
-   so the product reads as "always on" rather than idle. Paired with a slow gradient drift. */
+   so the product reads as "always on" rather than idle. Paired with a gradient drift. */
 @keyframes lt-breathe-strong {
   0%, 100% { transform: scale(0.92); }
   50%      { transform: scale(1.08); }
@@ -49,4 +50,28 @@ body {
 
 .lt-landed {
   animation: lt-land 2.8s ease-out 1;
+}
+
+/* ---- the guided tour (Tour.jsx) ----
+   The spotlight ring pulses so the eye lands on the highlighted control immediately, and the
+   tooltip rises into place rather than appearing — on a projector, movement is what reads. */
+@keyframes lt-tour-ring {
+  0%, 100% { box-shadow: 0 0 0 3px rgba(30, 151, 247, 0.95), 0 0 0 9px rgba(30, 151, 247, 0.18); }
+  50%      { box-shadow: 0 0 0 3px rgba(30, 151, 247, 0.95), 0 0 0 16px rgba(30, 151, 247, 0); }
+}
+
+/* Transform only, never opacity: if the animation is interrupted or the document timeline stalls
+   mid-run, a half-finished transform is a card sitting a few pixels low — a half-finished fade is a
+   card nobody can read. On the one surface whose whole job is being legible, that trade is free. */
+@keyframes lt-tour-in {
+  0%   { transform: translateY(10px) scale(0.97); }
+  100% { transform: translateY(0) scale(1); }
+}
+
+.lt-tour-ring {
+  animation: lt-tour-ring 1.9s ease-out infinite;
+}
+
+.lt-tour-card {
+  animation: lt-tour-in 0.28s cubic-bezier(0.22, 1, 0.36, 1) 1 both;
 }
