@@ -10,6 +10,7 @@ analyzed against (the second input, per the mockup's upload flow). The Finding f
 from __future__ import annotations
 
 import enum
+import re
 import uuid
 from datetime import date, datetime
 
@@ -279,6 +280,19 @@ class Document(Base):
         """True when an original PDF blob is stored (false for seeded/demo documents)."""
         return bool(self.file_path)
 
+    @property
+    def findings_ranked(self) -> list["Finding"]:
+        """Findings ordered for review: the ones carrying concrete numbers first.
+
+        Extraction order is the order the model happened to walk the PDF, which on a long CCT buries
+        the clauses a reviewer actually has to act on — a "+75% up to 120 hours" band — under
+        definitional and procedural text. A reviewer's job is the numbers: a rate, a threshold, a
+        window, a fraction. Those go first, and within the same score the extraction order is kept so
+        the document's own sequence still reads through (`sorted` is stable).
+        """
+        order = {f.id: i for i, f in enumerate(self.findings)}
+        return sorted(self.findings, key=lambda f: (-f.value_signal, order[f.id]))
+
 
 # --- the pivot: AI proposal carrying the citation, plus the review lifecycle ---
 
@@ -328,6 +342,48 @@ class Finding(Base):
     rule: Mapped["Rule | None"] = relationship(
         back_populates="finding", uselist=False, cascade="all, delete-orphan"
     )
+
+    @property
+    def value_signal(self) -> int:
+        """How much configurable *value* this finding carries — the sort key for `Document.findings_ranked`.
+
+        Counts the shapes a pay-policy field is actually typed in, weighted by how directly each one
+        answers "what number do I put in the box":
+
+        * a rate or premium (`+75%`, `100%`) — the commonest thing a CCT changes;
+        * a threshold in hours or a fraction of an hour (`120 horas`, `1/3 da hora`);
+        * a clock window (`22:00 às 06:00`) — night windows and shift boundaries;
+        * a cycle (`quadrimestralmente`, `2 meses`).
+
+        Deliberately language-agnostic on digits and symbols rather than keyword lists, so it works on
+        a Portuguese CCT, a German Tarifvertrag and a US CBA without a per-language table. A populated
+        `proposed_value` scores highest on its own: the mapping stage only fills it when it worked out
+        a concrete value to write, which is the strongest signal there is.
+        """
+        score = 0
+        proposed = (self.proposed_value or "").strip()
+        if proposed and proposed.lower() not in {"not set", "none", "—", "-", "n/a"}:
+            score += 6
+            if re.search(r"\d", proposed):
+                score += 4
+
+        # `proposed_value` is scanned alongside the source text, not just checked for digits: it holds
+        # the *distilled* figure ("1/3 (33.33%) of the normal hourly rate") where the clause may only
+        # spell it in words ("um terço"). Leaving it out ranked a rate change below prose that merely
+        # happened to contain a stray number.
+        haystack = "\n".join(
+            filter(None, (self.source_quote, self.rule_summary, self.title, proposed)),
+        )
+        score += 5 * len(re.findall(r"\d+(?:[.,]\d+)?\s*%", haystack))          # +75%, 100 %
+        score += 4 * len(re.findall(r"\b\d{1,2}[:h]\d{2}\b", haystack))          # 22:00, 06h00
+        score += 3 * len(re.findall(r"\b\d+\s*/\s*\d+\b", haystack))             # 1/3
+        score += 3 * len(re.findall(
+            r"\b\d+(?:[.,]\d+)?\s*(?:h|hs|hora|horas|hour|hours|Stunden|heures|min|minutos|minutes)\b",
+            haystack, re.I))                                                     # 120 horas, 8h
+        score += 2 * len(re.findall(
+            r"\b(?:quadrimestral|semestral|trimestral|mensal|anual|monthly|annual|"
+            r"quarterly|semi-?annual)\w*\b", haystack, re.I))                    # cycles
+        return score
 
 
 # --- store (b) layer 1: normalized, jurisdiction-agnostic verified rule -------

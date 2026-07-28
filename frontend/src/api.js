@@ -36,9 +36,18 @@ async function handle(res) {
 }
 
 async function req(path, opts = {}) {
+  // A string body is always JSON here, so default the content type rather than making every call
+  // site remember it: fetch otherwise sends `text/plain` and FastAPI rejects the body with a 422
+  // that looks nothing like a missing header. FormData bodies are left alone — the browser has to
+  // set their multipart boundary itself.
+  const jsonBody = typeof opts.body === "string";
   const res = await fetch(`${BASE}${path}`, {
     ...opts,
-    headers: { ...(opts.headers || {}), ...authHeader() },
+    headers: {
+      ...(jsonBody ? { "Content-Type": "application/json" } : {}),
+      ...(opts.headers || {}),
+      ...authHeader(),
+    },
   });
   return handle(res);
 }
@@ -110,6 +119,19 @@ export const chatFinding = (id, message) =>
 // --- source scanner (Phase 2) ---
 // status: the watch list, recent finds, and the review backlog they created.
 // scan: run one cycle — reports what was checked/triaged and surfaces what it found.
+// --- the T&A advisor (stateless: the transcript is posted back each turn) ---
+export const advisorCoverage = () => req("/api/advisor/coverage");
+export const advisorAsk = (jurisdiction, history, message) =>
+  req("/api/advisor/ask", {
+    method: "POST",
+    body: JSON.stringify({ jurisdiction, history, message }),
+  });
+export const advisorSummary = (jurisdiction, history) =>
+  req("/api/advisor/summary", {
+    method: "POST",
+    body: JSON.stringify({ jurisdiction, history }),
+  });
+
 export const agentStatus = () => req("/api/agent/status");
 export const runAgentScan = () => req("/api/agent/scan", { method: "POST" });
 

@@ -46,6 +46,10 @@ services:
       - ./backend/storage:/app/storage
       - ./backend/app:/app/app
       - ./backend/pipeline:/app/pipeline
+      # The advisor grounds its answers in the country support memos (app/advisor.py). They're
+      # research, not application code, so the image doesn't carry them — mount them read-only and
+      # editing a memo takes effect on the next question.
+      - ./docs:/app/docs:ro
 
   frontend:
     build:

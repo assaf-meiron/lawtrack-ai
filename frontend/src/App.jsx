@@ -1,18 +1,19 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { LogOut, Inbox, Library, Compass } from "lucide-react";
+import { LogOut, Inbox, Library, Compass, MessagesSquare } from "lucide-react";
 import { useAuth } from "./auth.jsx";
 import { T, Toast } from "./shared.jsx";
-import dayioLogo from "./assets/dayio-logo.svg";
+import oitchauLogo from "./assets/oitchau-logo.svg";
 import Login from "./Login.jsx";
 import DocumentsScreen from "./DocumentsScreen.jsx";
 import ReviewScreen from "./ReviewScreen.jsx";
 import LayersScreen from "./LayersScreen.jsx";
+import AdvisorScreen from "./AdvisorScreen.jsx";
 import Tour from "./Tour.jsx";
 import { AgentProvider, AgentChip } from "./AgentScanner.jsx";
 
 export default function App() {
   const { user, ready, logout } = useAuth();
-  const [screen, setScreen] = useState("documents"); // documents | review | layers
+  const [screen, setScreen] = useState("documents"); // documents | review | layers | advisor
   const [docId, setDocId] = useState(null);
   const [toast, setToast] = useState(null);
   const [tourOn, setTourOn] = useState(false);
@@ -50,6 +51,8 @@ export default function App() {
             onTour={() => { setScreen("documents"); setTourOn(true); }} />
           {screen === "documents" ? (
             <DocumentsScreen onOpen={openReview} fireToast={fireToast} />
+          ) : screen === "advisor" ? (
+            <AdvisorScreen fireToast={fireToast} />
           ) : (
             <LayersScreen fireToast={fireToast} />
           )}
@@ -83,7 +86,7 @@ function TopNav({ user, screen, setScreen, logout, onTour }) {
     <div className="px-6 py-3 flex items-center justify-between relative"
       style={{ borderBottom: `1px solid ${T.line}`, background: T.panel, zIndex: 10 }}>
       <div className="flex items-center gap-3">
-        <img src={dayioLogo} alt="day.io" style={{ height: 20, width: "auto" }} />
+        <img src={oitchauLogo} alt="Oitchau" style={{ height: 20, width: "auto" }} />
         <div className="self-stretch" style={{ width: 1, background: T.line }} />
         <div>
           <div className="text-sm font-semibold tracking-tight" style={{ color: T.ink }}>LawTrack AI</div>
@@ -94,6 +97,7 @@ function TopNav({ user, screen, setScreen, logout, onTour }) {
               anchors and the review round-trip. Only what the user reads changed. */}
           <NavBtn id="documents" Icon={Inbox} label="Inbox" />
           <NavBtn id="layers" Icon={Library} label="Knowledge Hub" />
+          <NavBtn id="advisor" Icon={MessagesSquare} label="Ask" />
         </div>
       </div>
       <div className="flex items-center gap-3">

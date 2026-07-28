@@ -10,7 +10,8 @@ import {
   Activity,
 } from "lucide-react";
 
-/* Design tokens — day.io brand: navy ink + brand blue accent (day.io/favicon.svg is the source mark). */
+/* Design tokens — Oitchau brand: navy ink + the #1e97f7 brand blue taken straight from the
+   Oitchau logo mark (assets/oitchau-logo.svg). */
 export const T = {
   paper: "#f5f7fa", panel: "#ffffff", ink: "#232838", ink2: "#3d4459",
   muted: "#6b7280", faint: "#98a1b3", line: "#e3e6ed", line2: "#d5d9e3",

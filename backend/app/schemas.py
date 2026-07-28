@@ -5,7 +5,7 @@ import uuid
 from datetime import date, datetime
 from typing import Any, Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ORMModel(BaseModel):
@@ -175,7 +175,9 @@ class FindingOut(ORMModel):
 
 class DocumentDetail(DocumentOut):
     pages: Optional[list[Any]] = None
-    findings: list[FindingOut] = []
+    # Read from `Document.findings_ranked`, not the raw relationship: value-bearing clauses lead the
+    # review queue. Still serialized as `findings` — every consumer sees one agreed order.
+    findings: list[FindingOut] = Field(default=[], validation_alias="findings_ranked")
     policy: Optional[PayPolicyOut] = None
 
 
