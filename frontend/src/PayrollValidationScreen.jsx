@@ -1,11 +1,12 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useState } from "react";
 import {
-  ShieldCheck, ArrowLeft, ArrowRight, Loader2, Users, FileText, Building2, MapPin,
-  AlertOctagon, AlertTriangle, AlertCircle, CheckCircle2, ChevronDown, ChevronRight,
-  Scale, Clock, Copy, Check, Filter, Ban, Fingerprint, Landmark,
+  ArrowLeft, ArrowRight, Building2,
+  CheckCircle2, ChevronDown, ChevronRight,
+  Scale, Copy, Check, Filter, Ban, Fingerprint, Wrench, Send, ListChecks,
 } from "lucide-react";
-import * as api from "./api.js";
 import { T } from "./shared.jsx";
+import { SEV, CLEAR, sevMeta, num, money, pct, ScoreDial, Tile } from "./validationShared.jsx";
+import ValidationOverview from "./ValidationOverview.jsx";
 
 /* Payroll Validation — the punches, checked against the agreement they were collected under.
 
@@ -13,250 +14,42 @@ import { T } from "./shared.jsx";
    live, the month is closed, and the question is whether the punch data already collected obeys the
    CCT it was collected under.
 
-   Two screens, and the order is the argument. **First you choose a population**, because compliance is
-   not a company-level fact — it is a fact about one employee category under one collective agreement,
-   so the picker names the CCT and the union in full, by registration number. **Then the dashboard
-   answers.** The score is deliberately not on the picker cards: revealing it there would answer the
-   question before the user has said which population they are asking about.
+   Screen 1 (ValidationOverview.jsx) is the department org chart — pick a population. Screen 2, below,
+   is the dashboard that answers for it. Every number on it is computed from the punch stream by the
+   backend engine (`app/validation.py`), and every rule row carries the article or clause that creates
+   it, quoted. A finding a reviewer cannot trace back to a clause is not worth showing. */
 
-   Every number on the dashboard is computed from the punch stream by the backend engine
-   (`app/validation.py`), and every rule row carries the article or clause that creates it, quoted. A
-   finding a reviewer cannot trace back to a clause is not worth showing. */
-
-/* Severity is a *status* scale, not a series palette: four fixed steps, each shipped with an icon and
-   a word so identity never rests on hue alone. The steps are checked for separation under deuteranopia
-   and tritanopia as well as normal vision — amber sits at #ca8a04 rather than the more obvious #d97706
-   because that lighter step is not reliably distinguishable from the critical red. */
-const SEV = {
-  critical: { label: "Critical", Icon: AlertOctagon, ink: "#dc2626", soft: "#fef2f2", line: "#fecaca", track: "#fee2e2" },
-  high: { label: "High", Icon: AlertTriangle, ink: "#ca8a04", soft: "#fefce8", line: "#fde68a", track: "#fef3c7" },
-  medium: { label: "Medium", Icon: AlertCircle, ink: "#2563eb", soft: "#eff6ff", line: "#bfdbfe", track: "#dbeafe" },
-};
-const CLEAR = { label: "Clear", Icon: CheckCircle2, ink: "#059669", soft: "#ecfdf5", line: "#a7f3d0", track: "#d1fae5" };
-const sevMeta = (rule) => (rule.status === "clear" ? CLEAR : SEV[rule.severity]);
-
-/* The score's own colour, on the same three status steps — so a 62 and a "Critical" chip on the same
-   screen are saying the same thing in the same language. */
-function scoreTone(score) {
-  if (score >= 85) return CLEAR;
-  if (score >= 70) return SEV.high;
-  return SEV.critical;
-}
-
-const num = (n) => (n ?? 0).toLocaleString("en-US");
-const money = (n, symbol) =>
-  `${symbol}${Math.round(n ?? 0).toLocaleString("en-US")}`;
-const pct = (share) => `${Math.round((share ?? 0) * 100)}%`;
-
-/* How long the "validating" stage list is held on screen. The request itself returns in well under a
-   second, which reads as "nothing happened" — the floor is there so the reader can see *what* was
-   checked before the answer replaces it. It is a presentation minimum, not added latency: the fetch
-   and the wait run together. */
-const RUN_MIN_MS = 1900;
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-export default function PayrollValidationScreen({ fireToast }) {
-  const [catalog, setCatalog] = useState(null);
+export default function PayrollValidationScreen({ fireToast, onOpenLayers }) {
   const [run, setRun] = useState(null);
-  const [busy, setBusy] = useState(null);      // the group key being validated
 
-  useEffect(() => {
-    api.validationGroups().then(setCatalog).catch((e) => fireToast(e.message, "error"));
-  }, [fireToast]);
-
-  const validate = useCallback(async (group) => {
-    setBusy(group.key);
-    try {
-      const [result] = await Promise.all([api.runValidation(group.key), sleep(RUN_MIN_MS)]);
-      setRun(result);
-      window.scrollTo({ top: 0 });
-    } catch (e) {
-      fireToast(e.message, "error");
-    } finally {
-      setBusy(null);
-    }
-  }, [fireToast]);
-
-  if (!catalog) {
-    return (
-      <div className="px-6 py-16 flex items-center gap-2 text-sm" style={{ color: T.muted }}>
-        <Loader2 size={16} className="animate-spin" /> Loading the business role groups…
-      </div>
-    );
+  if (run) {
+    return <Dashboard run={run} onBack={() => setRun(null)} fireToast={fireToast} onOpenLayers={onOpenLayers} />;
   }
-  if (run) return <Dashboard run={run} onBack={() => setRun(null)} fireToast={fireToast} />;
-  return <Picker catalog={catalog} onPick={validate} busy={busy} />;
+  return <ValidationOverview fireToast={fireToast} onOpenDashboard={setRun} />;
 }
 
-/* ============================ screen 1 — the population ============================ */
+/* ============================ the dashboard ============================ */
 
-function Picker({ catalog, onPick, busy }) {
-  const totalGroups = catalog.countries.reduce((n, c) => n + c.groups.length, 0);
-  const totalPeople = catalog.countries.reduce((n, c) => n + c.employees, 0);
+/* Which rule codes a breach is fixable by *changing a configured rate or threshold* — the night
+   premium percentage, the punch-tolerance window, the Sunday premium, the weekly-overtime rate step —
+   versus one fixable only by changing how people are actually rostered. This is what routes the call
+   to action: a misconfigured percentage goes to whoever owns the pay policy; a missed rest day goes to
+   whoever owns the schedule. There is no field on the run for this distinction, because it isn't a
+   property of the rule — it's a property of what fixing it looks like, so it's kept here, next to the
+   one place that decision gets made. */
+const CONFIG_FIX_CODES = new Set(["br-tolerance-10m", "br-night-premium", "mx-ot-weekly-9h", "mx-sunday-prima"]);
+const CONFIG_FIX_LABELS = {
+  "br-tolerance-10m": "punch tolerance",
+  "br-night-premium": "night premium",
+  "mx-ot-weekly-9h": "weekly OT premium",
+  "mx-sunday-prima": "Sunday premium",
+};
 
-  return (
-    <div className="mx-auto px-6 py-6" style={{ maxWidth: 1180 }}>
-      <div className="flex items-start gap-3">
-        <div className="flex items-center justify-center rounded-xl shrink-0"
-          style={{ width: 40, height: 40, background: T.ink }}>
-          <ShieldCheck size={21} color="#fff" />
-        </div>
-        <div className="min-w-0">
-          <h1 className="text-xl font-semibold tracking-tight" style={{ color: T.ink }}>Payroll Validation</h1>
-          <p className="text-sm mt-1" style={{ color: T.muted, maxWidth: 780 }}>
-            Check the punches you already collected against the collective agreement they were collected
-            under. Choose a business role group — {totalGroups} groups, {num(totalPeople)} employees across{" "}
-            {catalog.countries.length} countries — and every rule in its CCT is run over the period's punch
-            records, employee by employee.
-          </p>
-          <div className="mt-2.5 flex items-center gap-3 flex-wrap text-xs" style={{ color: T.faint }}>
-            <span className="inline-flex items-center gap-1.5">
-              <Clock size={12} /> Period under validation: <strong style={{ color: T.ink2, fontWeight: 600 }}>
-                {catalog.period.label}</strong> ({catalog.period.days} days, closed)
-            </span>
-            <span style={{ color: T.line2 }}>·</span>
-            <span className="inline-flex items-center gap-1.5">
-              <Fingerprint size={12} /> Source: the T&amp;A punch register
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {catalog.countries.map((country) => (
-        <section key={country.code} className="mt-7">
-          <div className="flex items-baseline gap-2.5 flex-wrap pb-2.5" style={{ borderBottom: `1px solid ${T.line}` }}>
-            <span style={{ fontSize: 19 }}>{country.flag}</span>
-            <h2 className="text-base font-semibold tracking-tight" style={{ color: T.ink }}>{country.name}</h2>
-            <span className="text-xs" style={{ color: T.muted }}>{country.law}</span>
-            <span className="text-xs ml-auto" style={{ color: T.faint }}>
-              {country.groups.length} groups · {num(country.employees)} employees ·{" "}
-              {/* Same acronym, different instrument — worth saying once per country. */}
-              agreements filed as <strong style={{ color: T.ink2, fontWeight: 600 }}>{country.instrument}</strong>{" "}
-              with the {country.registry}
-            </span>
-          </div>
-          <div className="mt-3 grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(420px, 1fr))" }}>
-            {country.groups.map((g) => (
-              <GroupCard key={g.key} group={g} onPick={onPick} busy={busy} />
-            ))}
-          </div>
-        </section>
-      ))}
-    </div>
-  );
-}
-
-/* The four facts that make a group pickable: how many employees, what the group is, which CCT governs
-   it, and which union signed that CCT. Everything else on the card is subordinate to those. */
-function GroupCard({ group, onPick, busy }) {
-  const running = busy === group.key;
-  const blocked = busy && !running;
-  return (
-    <button
-      onClick={() => !busy && onPick(group)}
-      disabled={!!busy}
-      className="text-left rounded-xl overflow-hidden flex flex-col transition-shadow"
-      style={{
-        background: T.panel, border: `1px solid ${running ? T.signal : T.line}`,
-        boxShadow: running ? "0 0 0 3px rgba(30,151,247,0.12)" : "0 1px 3px rgba(35,40,56,0.05)",
-        opacity: blocked ? 0.55 : 1, cursor: busy ? "default" : "pointer",
-      }}
-    >
-      <div className="px-4 pt-3.5 pb-3 flex items-start gap-3">
-        <div className="min-w-0 flex-1">
-          <div className="text-sm font-semibold leading-snug" style={{ color: T.ink }}>{group.name}</div>
-          <div className="text-xs mt-1 leading-snug" style={{ color: T.muted }}>{group.category}</div>
-        </div>
-        {/* The headcount is the number that makes the group feel like a population rather than a label. */}
-        <div className="text-right shrink-0">
-          <div className="text-xl font-semibold leading-none" style={{ color: T.ink }}>{num(group.headcount)}</div>
-          <div className="mt-0.5 inline-flex items-center gap-1" style={{ fontSize: 10, color: T.faint }}>
-            <Users size={10} /> employees
-          </div>
-        </div>
-      </div>
-
-      <div className="px-4 pb-3 flex flex-col gap-2.5" style={{ borderTop: `1px solid ${T.line}`, paddingTop: 10 }}>
-        <Fact Icon={FileText} label={group.cct_instrument} value={group.cct_official}
-          sub={`${group.cct_registration} · ${group.cct_validity}`} />
-        <Fact Icon={Landmark} label="Union agreement — signatory" value={group.union_official}
-          sub={`Employers' side: ${group.employer_body}`} />
-      </div>
-
-      <div className="px-4 py-2.5 mt-auto flex items-center gap-3 flex-wrap"
-        style={{ borderTop: `1px solid ${T.line}`, background: "#fbfcfe" }}>
-        <span className="inline-flex items-center gap-1.5 text-xs" style={{ color: T.muted }}>
-          <Scale size={12} color={T.faint} /> {group.rule_count} rules mapped
-        </span>
-        <span className="inline-flex items-center gap-1.5 text-xs" style={{ color: T.muted }}>
-          <MapPin size={12} color={T.faint} /> {group.sites.length} sites
-        </span>
-        <span className="ml-auto inline-flex items-center gap-1.5 text-xs font-semibold"
-          style={{ color: running ? T.signal : T.ink }}>
-          {running
-            ? <><Loader2 size={13} className="animate-spin" /> Validating…</>
-            : <>Validate punches <ArrowRight size={13} /></>}
-        </span>
-      </div>
-
-      {running && <RunStages group={group} />}
-    </button>
-  );
-}
-
-function Fact({ Icon, label, value, sub }) {
-  return (
-    <div className="flex items-start gap-2 min-w-0">
-      <Icon size={13} color={T.faint} className="shrink-0" style={{ marginTop: 2 }} />
-      <div className="min-w-0">
-        <div className="uppercase tracking-wider" style={{ fontSize: 9, color: T.faint, fontWeight: 700 }}>{label}</div>
-        <div className="text-xs leading-snug mt-0.5" style={{ color: T.ink2 }}>{value}</div>
-        {sub && <div className="leading-snug mt-0.5" style={{ fontSize: 10.5, color: T.faint }}>{sub}</div>}
-      </div>
-    </div>
-  );
-}
-
-/* What the run is doing, while it does it. The stages are the real pipeline in order, which is the
-   point: a reader who watches this knows the score came from punch records and clauses, not a lookup. */
-function RunStages({ group }) {
-  const stages = useMemo(() => [
-    `Reading the punch register for ${num(group.headcount)} employees`,
-    "Rebuilding shifts, breaks and rest gaps from the raw punches",
-    `Applying ${group.rule_count} rules from ${group.cct_instrument} + statute`,
-    "Grouping breaches by clause and pricing the exposure",
-  ], [group]);
-  const [at, setAt] = useState(0);
-  useEffect(() => {
-    const id = setInterval(() => setAt((n) => Math.min(n + 1, stages.length - 1)), RUN_MIN_MS / stages.length);
-    return () => clearInterval(id);
-  }, [stages.length]);
-
-  return (
-    <div className="px-4 py-3 flex flex-col gap-1.5" style={{ borderTop: `1px solid ${T.line}`, background: "#fff" }}>
-      {stages.map((s, i) => (
-        <div key={s} className="flex items-center gap-2 text-xs"
-          style={{ color: i < at ? T.muted : i === at ? T.ink : T.faint, opacity: i > at ? 0.5 : 1 }}>
-          {i < at ? <Check size={12} color={CLEAR.ink} /> : i === at
-            ? <Loader2 size={12} className="animate-spin" color={T.signal} />
-            : <span style={{ width: 12 }} />}
-          {s}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-/* ============================ screen 2 — the dashboard ============================ */
-
-function Dashboard({ run, onBack, fireToast }) {
+function Dashboard({ run, onBack, fireToast, onOpenLayers }) {
   const { group, totals, period } = run;
   const [sevFilter, setSevFilter] = useState("all");
   const [siteFilter, setSiteFilter] = useState("all");
-  const [open, setOpen] = useState(() => {
-    const worst = run.rules.find((r) => r.status === "breach");
-    return worst ? { [worst.code]: true } : {};
-  });
+  const [open, setOpen] = useState({});
 
   const breached = run.rules.filter((r) => r.status === "breach");
   const clear = run.rules.filter((r) => r.status === "clear");
@@ -271,7 +64,7 @@ function Dashboard({ run, onBack, fireToast }) {
         <button onClick={onBack}
           className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold shrink-0 transition-transform active:scale-95"
           style={{ border: `1px solid ${T.line2}`, background: "#fff", color: T.ink2 }}>
-          <ArrowLeft size={13} /> All groups
+          <ArrowLeft size={13} /> All departments
         </button>
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-2 flex-wrap">
@@ -302,7 +95,7 @@ function Dashboard({ run, onBack, fireToast }) {
             <div className="text-xs mt-1.5 leading-relaxed" style={{ color: T.muted }}>
               {num(totals.employees_in_breach)} of {num(totals.employees)} employees
               ({pct(totals.employees_in_breach / totals.employees)}) appear in at least one breach, across{" "}
-              {num(totals.violations)} occurrences found in {num(totals.punch_records)} punch records.
+              {num(totals.violations)} occurrences.
             </div>
             <div className="mt-2.5 flex items-center gap-1.5 flex-wrap">
               {["critical", "high", "medium"].map((sev) => {
@@ -326,19 +119,16 @@ function Dashboard({ run, onBack, fireToast }) {
             </div>
           </div>
         </div>
-        <div className="px-5 py-2.5 text-xs leading-snug" style={{ borderTop: `1px solid ${T.line}`, background: "#fbfcfe", color: T.faint }}>
-          <strong style={{ color: T.muted, fontWeight: 600 }}>How the score is built.</strong> {run.score_basis}
-        </div>
       </div>
 
-      {/* the headline counts — deliberately smaller than the score, which is the view's one hero figure */}
-      <div className="mt-3 grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
-        <Tile label="Employees checked" value={num(totals.employees)} sub={`${group.sites.length} sites`} />
+      {breached.length > 0 && <ActionPanel run={run} onOpenLayers={onOpenLayers} fireToast={fireToast} />}
+
+      {/* the headline counts — deliberately smaller than the score, and deliberately fewer than every
+          number the run produces: the rest is one click into a rule row, not a tile on the landing view */}
+      <div className="mt-3 grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))" }}>
         <Tile label="Employees in breach" value={num(totals.employees_in_breach)}
-          sub={pct(totals.employees_in_breach / totals.employees) + " of the group"}
+          sub={pct(totals.employees_in_breach / totals.employees) + ` of ${num(totals.employees)} checked`}
           tone={totals.employees_in_breach ? SEV.critical : CLEAR} />
-        <Tile label="Punch records analysed" value={num(totals.punch_records)}
-          sub={`${num(totals.days_analyzed)} worked days`} />
         <Tile label="Rules breached" value={`${totals.rules_breached} / ${totals.rules_evaluated}`}
           sub={`${num(totals.violations)} occurrences`} />
         <Tile label="Estimated exposure" value={money(totals.exposure, totals.symbol)}
@@ -395,11 +185,13 @@ function Dashboard({ run, onBack, fireToast }) {
           <Fingerprint size={13} className="shrink-0" style={{ marginTop: 1 }} />
           <div>
             Punches read from <strong style={{ color: T.muted, fontWeight: 600 }}>{run.punch_source}</strong> for{" "}
-            {period.start} → {period.end}.{" "}
+            {period.start} → {period.end} — {num(totals.punch_records)} punch records across{" "}
+            {num(totals.days_analyzed)} worked days.{" "}
             <strong style={{ color: T.muted, fontWeight: 600 }}>Exposure is an indicative estimate</strong> — the
             suppressed time at its statutory premium plus the reflex effects that ride along, per occurrence. It
-            is a triage number for deciding what to fix first, not a payroll calculation and not a provision.
-            Findings are a cited draft for expert review.
+            is a triage number for deciding what to fix first, not a payroll calculation and not a provision.{" "}
+            <strong style={{ color: T.muted, fontWeight: 600 }}>Score basis:</strong> {run.score_basis} Findings are
+            a cited draft for expert review.
           </div>
         </div>
       </div>
@@ -407,51 +199,82 @@ function Dashboard({ run, onBack, fireToast }) {
   );
 }
 
-/* The hero figure: one per view, ≥48px, in the product's own sans. The ring is a meter — the fill
-   carries the severity and the track is a lighter step of the same hue, so state reads across the
-   whole arc rather than only where the fill stops. */
-function ScoreDial({ score, grade }) {
-  const tone = scoreTone(score);
-  const r = 46, c = 2 * Math.PI * r;
+/* ============================ the call to action ============================ */
+
+/* What HR actually does with this list: split it by who can fix it. A misconfigured rate is a Payroll
+   config change, made once, that clears every occurrence it created. A missed rest day or a broken
+   rotation is a scheduling decision, made by whoever owns that roster, per site. Handing over one
+   undifferentiated list of breached rules leaves that triage to the reader; doing it here is the
+   difference between a dashboard and a next step. */
+function ActionPanel({ run, onOpenLayers, fireToast }) {
+  const breached = run.rules.filter((r) => r.status === "breach");
+  const configRules = breached.filter((r) => CONFIG_FIX_CODES.has(r.code));
+  const scheduleRules = breached.filter((r) => !CONFIG_FIX_CODES.has(r.code));
+
+  const openLayers = () => {
+    fireToast(`Opening the Knowledge Hub — check ${run.group.policy_key ? "the " + run.group.policy_key + " layer's" : "this group's"} rate and tolerance fields against the CCT.`, "neutral");
+    onOpenLayers?.();
+  };
+  const assignSchedule = () => {
+    fireToast(`Queued for the ${run.group.name} site managers — ${scheduleRules.length} rule${scheduleRules.length === 1 ? "" : "s"} to fix in the roster.`, "ready");
+  };
+
   return (
-    <div className="flex items-center gap-4 shrink-0">
-      <div className="relative" style={{ width: 116, height: 116 }}>
-        <svg width="116" height="116" viewBox="0 0 116 116" style={{ transform: "rotate(-90deg)" }}>
-          <circle cx="58" cy="58" r={r} fill="none" stroke={tone.track} strokeWidth="11" />
-          <circle cx="58" cy="58" r={r} fill="none" stroke={tone.ink} strokeWidth="11" strokeLinecap="round"
-            strokeDasharray={c} strokeDashoffset={c * (1 - score / 100)} />
-        </svg>
-        <div className="absolute inset-0 flex flex-col items-center justify-center">
-          {/* Proportional figures, not tabular: at this size tabular digits read loose. */}
-          <div style={{ fontSize: 44, fontWeight: 600, lineHeight: 1, color: T.ink, letterSpacing: "-0.02em" }}>
-            {score}
-          </div>
-          <div className="uppercase tracking-wider" style={{ fontSize: 9, color: T.faint, marginTop: 3 }}>
-            of 100
-          </div>
-        </div>
+    <div className="mt-3 rounded-xl overflow-hidden" style={{ background: T.panel, border: `1px solid ${T.line}` }}>
+      <div className="px-4 py-2.5 flex items-center gap-2" style={{ borderBottom: `1px solid ${T.line}` }}>
+        <ListChecks size={14} color={T.ink2} />
+        <span className="text-sm font-semibold" style={{ color: T.ink }}>What to do next</span>
+        <span className="text-xs" style={{ color: T.faint }}>the {breached.length} breaches above, split by who fixes them</span>
       </div>
-      <div>
-        <div className="uppercase tracking-wider" style={{ fontSize: 9, color: T.faint, fontWeight: 700 }}>
-          Compliance score
-        </div>
-        <div className="flex items-baseline gap-1.5 mt-1">
-          <span className="text-2xl font-semibold leading-none" style={{ color: tone.ink }}>{grade}</span>
-          <span className="text-xs" style={{ color: T.muted }}>grade</span>
-        </div>
+      <div className="grid" style={{ gridTemplateColumns: configRules.length && scheduleRules.length ? "1fr 1fr" : "1fr" }}>
+        {configRules.length > 0 && (
+          <ActionCard
+            Icon={Wrench}
+            title="Fix the pay-policy configuration"
+            body={`${configRules.length} rule${configRules.length === 1 ? "" : "s"} — ${configRules.map((r) => CONFIG_FIX_LABELS[r.code] || r.title).join(", ")} — are a rate or threshold set narrower or lower than the CCT requires. One config change clears every occurrence.`}
+            exposure={configRules.reduce((n, r) => n + r.exposure, 0)}
+            symbol={run.totals.symbol}
+            ctaLabel="Open Knowledge Hub"
+            onClick={openLayers}
+            divider={scheduleRules.length > 0}
+          />
+        )}
+        {scheduleRules.length > 0 && (
+          <ActionCard
+            Icon={Send}
+            title="Assign to the scheduling owners"
+            body={`${scheduleRules.length} rule${scheduleRules.length === 1 ? "" : "s"} come from how people are actually rostered — rest gaps, rotations, hour-bank balances — and need a per-site schedule change, not a config edit.`}
+            exposure={scheduleRules.reduce((n, r) => n + r.exposure, 0)}
+            symbol={run.totals.symbol}
+            ctaLabel="Assign to site managers"
+            onClick={assignSchedule}
+          />
+        )}
       </div>
     </div>
   );
 }
 
-function Tile({ label, value, sub, tone }) {
+function ActionCard({ Icon, title, body, exposure, symbol, ctaLabel, onClick, divider }) {
   return (
-    <div className="rounded-xl px-3.5 py-3" style={{ background: T.panel, border: `1px solid ${T.line}` }}>
-      <div className="text-xs" style={{ color: T.muted }}>{label}</div>
-      <div className="mt-1 text-xl font-semibold leading-none" style={{ color: tone ? tone.ink : T.ink }}>
-        {value}
+    <div className="px-4 py-3.5 flex flex-col gap-2.5" style={divider ? { borderRight: `1px solid ${T.line}` } : undefined}>
+      <div className="flex items-start gap-2.5">
+        <div className="flex items-center justify-center rounded-lg shrink-0" style={{ width: 28, height: 28, background: "#eef2ff" }}>
+          <Icon size={14} color="#4338ca" />
+        </div>
+        <div className="min-w-0">
+          <div className="text-sm font-semibold" style={{ color: T.ink }}>{title}</div>
+          <div className="text-xs mt-1 leading-relaxed" style={{ color: T.muted }}>{body}</div>
+        </div>
       </div>
-      {sub && <div className="mt-1.5" style={{ fontSize: 10.5, color: T.faint }}>{sub}</div>}
+      <div className="flex items-center gap-2.5 mt-auto pt-1">
+        <button onClick={onClick}
+          className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-transform active:scale-95"
+          style={{ background: T.ink, color: "#fff" }}>
+          {ctaLabel} <ArrowRight size={12} />
+        </button>
+        <span className="text-xs" style={{ color: T.faint }}>{money(exposure, symbol)} of the exposure above</span>
+      </div>
     </div>
   );
 }

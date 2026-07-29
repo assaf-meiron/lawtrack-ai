@@ -55,7 +55,7 @@ export default function App() {
           ) : screen === "advisor" ? (
             <AdvisorScreen fireToast={fireToast} />
           ) : screen === "validation" ? (
-            <PayrollValidationScreen fireToast={fireToast} />
+            <PayrollValidationScreen fireToast={fireToast} onOpenLayers={() => setScreen("layers")} />
           ) : (
             <LayersScreen fireToast={fireToast} />
           )}
