@@ -181,8 +181,8 @@ export function AgentChip() {
   const { status, setOpen, scanning } = useAgent() || {};
   const found = status?.found_in_window ?? 0;
   const label = status
-    ? `Day.io Agent · ${foundLine(status)} · ${watchLine(status).toLowerCase()}`
-    : "Day.io Agent";
+    ? `Oitchau Agent · ${foundLine(status)} · ${watchLine(status).toLowerCase()}`
+    : "Oitchau Agent";
 
   return (
     <button onClick={() => setOpen(true)} title={label} data-tour="agent-chip"
@@ -191,7 +191,7 @@ export function AgentChip() {
       <AgentIcon size={18} scanning={scanning} />
       <span className="text-left leading-none">
         <span className="block text-xs font-semibold" style={{ color: T.ink }}>
-          {scanning ? "Scanning…" : "Day.io Agent"}
+          {scanning ? "Scanning…" : "Oitchau Agent"}
         </span>
         <span className="block" style={{ fontSize: 10, color: T.faint, marginTop: 2 }}>
           {status ? `${found} found · past 24h` : "…"}
@@ -221,7 +221,7 @@ export function AgentStrip() {
         <AgentIcon size={26} scanning={scanning} />
         <div className="min-w-0">
           <div className="text-sm font-semibold flex items-center gap-2" style={{ color: T.ink }}>
-            {scanning ? "Day.io Agent scanning…" : "Day.io Agent"}
+            {scanning ? "Oitchau Agent scanning…" : "Oitchau Agent"}
             <span className="uppercase tracking-wider rounded px-1.5 py-0.5" style={{ fontSize: 9, background: T.aiSoft, color: "#6d5bd0" }}>
               AI · Preview
             </span>
@@ -285,7 +285,7 @@ function AgentPanel() {
             <AgentIcon size={32} scanning={scanning} />
             <div>
               <div className="text-sm font-semibold flex items-center gap-2" style={{ color: T.ink }}>
-                Day.io Agent
+                Oitchau Agent
                 <span className="uppercase tracking-wider rounded px-1.5 py-0.5" style={{ fontSize: 9, background: T.aiSoft, color: "#6d5bd0" }}>
                   AI · Preview
                 </span>

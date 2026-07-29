@@ -53,7 +53,14 @@ INSTRUCTION = (
     "(5) regular workweek = 45h.\n\n"
     "FLAG, DON'T DROP. If a rule is unclear or appears to conflict with another (e.g. a stated 45h "
     "workweek alongside a 9h/day Mon–Fri schedule that implies 45h), STILL record it and note what is "
-    "ambiguous in rule_summary. Never silently omit a rule because you're unsure how it maps. Then stop."
+    "ambiguous in rule_summary. Never silently omit a rule because you're unsure how it maps.\n\n"
+    "CARRY THE NUMBER. A reviewer's job is the values, so any clause stating a rate, a premium "
+    "percentage, an hour threshold, a clock window, a fraction of an hour or a cycle length is "
+    "high-value — never skip one, and always restate its figures explicitly in rule_summary (\"+75% on "
+    "hours up to 120\", \"night window 22:00–06:00\", \"1/3 of the normal hourly rate\"). Write the "
+    "number even when the clause spells it out in words: \"cento e vinte horas\" is 120h, \"um terço\" "
+    "is 1/3. A rule_summary that describes a rate without saying what the rate is has lost the only "
+    "part the reviewer needed. Then stop."
 )
 
 

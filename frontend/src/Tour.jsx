@@ -55,7 +55,7 @@ const STEPS = [
     fallbackAnchor: '[data-tour="agent-strip"]',
     eyebrow: "Way two",
     title: "Let the Agent find it first.",
-    body: "The Day.io Agent watches 2,640 sources — national gazettes, state registers, union archives, collective-agreement registries — and tells you what it found in the past 24 hours. Open it to see the countries under watch and run a scan on the spot.",
+    body: "The Oitchau Agent watches 2,640 sources — national gazettes, state registers, union archives, collective-agreement registries — and tells you what it found in the past 24 hours. Open it to see the countries under watch and run a scan on the spot.",
     placement: "bottom",
   },
   {

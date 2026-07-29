@@ -3,7 +3,7 @@ import { Loader2, Move3d } from "lucide-react";
 import { useAuth } from "./auth.jsx";
 import { HOURS_DOMAIN, hoursColor } from "./globeData.js";
 import InteractiveGlobe from "./InteractiveGlobe.jsx";
-import dayioLogo from "./assets/dayio-logo.svg";
+import oitchauLogo from "./assets/oitchau-logo.svg";
 
 export default function Login() {
   const { login } = useAuth();
@@ -36,7 +36,7 @@ export default function Login() {
     >
       <Hero />
 
-      {/* Sign-in panel — shares the page canvas; day.io hand as a glowing emblem */}
+      {/* Sign-in panel — shares the page canvas; the Oitchau mark as a glowing emblem */}
       <div className="flex-1 flex flex-col items-center justify-center p-8 relative overflow-hidden">
         {/* glow behind the emblem */}
         <div
@@ -46,8 +46,8 @@ export default function Login() {
             background: "radial-gradient(circle, rgba(30,151,247,0.28), transparent 60%)",
           }}
         />
-        {/* big day.io hand emblem, bleeding off the right edge */}
-        <DayioMark
+        {/* big Oitchau emblem, bleeding off the right edge */}
+        <OitchauMark
           className="pointer-events-none absolute select-none"
           style={{
             right: "-12%", top: "50%", transform: "translateY(-50%)",
@@ -147,7 +147,7 @@ export default function Login() {
         </div>
 
         <div className="absolute bottom-5 text-xs" style={{ color: "rgba(234,241,251,0.5)" }}>
-          Internal tool · day.io
+          Internal tool · Oitchau
         </div>
       </div>
     </div>
@@ -182,16 +182,16 @@ function Hero() {
       {/* logo */}
       <div className="relative px-12 pt-10">
         <img
-          src={dayioLogo}
-          alt="day.io"
+          src={oitchauLogo}
+          alt="Oitchau"
           style={{ height: 22, width: "auto", filter: "brightness(0) invert(1)", opacity: 0.95 }}
         />
       </div>
 
-      {/* headline */}
+      {/* headline — the pitch, not a caption for the globe. The globe reads on its own. */}
       <div className="relative px-12 pt-8">
         <h1 className="text-[1.9rem] leading-tight font-semibold tracking-tight">
-          Working hours,
+          Every labour law on earth,
           <span
             style={{
               background: "linear-gradient(90deg, #7fd0ff, #a78bfa)",
@@ -199,12 +199,15 @@ function Hero() {
               WebkitTextFillColor: "transparent",
             }}
           >
-            {" "}mapped to the world.
+            {" "}watched by AI.
           </span>
         </h1>
         <p className="mt-2.5 text-sm leading-relaxed max-w-md" style={{ color: "rgba(234,241,251,0.62)" }}>
-          Standard weekly working hours by country — the threshold before overtime.
-          Press and hold a country to read its number.
+          Working-time rules change every day, in every jurisdiction you operate in.
+          LawTrack AI puts <strong style={{ color: "rgba(234,241,251,0.9)", fontWeight: 600 }}>Agents</strong> on
+          thousands of gazettes, registries and union archives — they read what changed, cite the exact
+          clause, and hand your team the precise configuration change to approve. Compliance that keeps
+          up with the world, instead of catching up to it.
         </p>
       </div>
 
@@ -248,15 +251,15 @@ function HoursLegend() {
   );
 }
 
-/* Just the day.io "hand" mark (no DAY.IO wordmark), cropped to its bounds so it
-   can be scaled up as a standalone emblem. Fill follows `color` via currentColor. */
-function DayioMark({ className, style }) {
+/* Just the Oitchau mark (no wordmark), cropped to its bounds so it can be scaled up as a standalone
+   emblem. Same path as assets/oitchau-logo.svg, with the fill dropped so it follows `color`. */
+function OitchauMark({ className, style }) {
   return (
-    <svg viewBox="3.5 3.5 27 31" fill="currentColor" className={className} style={style} aria-hidden="true">
+    <svg viewBox="0 0 32 42" fill="currentColor" className={className} style={style} aria-hidden="true">
       <path
         fillRule="evenodd"
         clipRule="evenodd"
-        d="M20.376 27.094a6.096 6.096 0 0 1-1.854 3.016 6.076 6.076 0 0 1-9.288-1.511 6.105 6.105 0 0 1 .436-6.765 6.069 6.069 0 0 1 6.406-2.177 6.083 6.083 0 0 1 3.68 2.83 6.106 6.106 0 0 1 .62 4.607zm4.269 1.146a10.529 10.529 0 0 1-4.318 5.997 10.49 10.49 0 0 1-13.701-1.803A10.543 10.543 0 0 1 4 25.523v-8.304c.877.001 1.718.35 2.34.97.62.621.971 1.463.976 2.342v4.992a7.211 7.211 0 0 0 1.75 4.814 7.175 7.175 0 0 0 9.476 1.245 7.202 7.202 0 0 0 2.929-4.199l3.266-12.117a1.663 1.663 0 0 1 2.031-1.179 1.66 1.66 0 0 1 1.176 2.035l-3.3 12.118zm-3.267-4.84 3.588-13.394a1.664 1.664 0 0 0-1.173-2.032 1.653 1.653 0 0 0-2.028 1.175L18.89 19.827a7.208 7.208 0 0 1 2.477 3.573h.011zm-3.451-4.195 3.495-13.116a1.663 1.663 0 0 0-1.174-2.033 1.654 1.654 0 0 0-2.027 1.176l-3.523 13.094c.552.017 1.1.1 1.633.246.55.15 1.083.361 1.585.633h.01zm-4.356-.797 2.662-9.99a1.666 1.666 0 0 0-1.176-2.035 1.656 1.656 0 0 0-2.03 1.179L9.619 20.258a7.212 7.212 0 0 1 3.93-1.85h.022zm3.604 7.83a2.772 2.772 0 0 1-2.304 2.041 2.76 2.76 0 0 1-2.762-1.355 2.776 2.776 0 0 1 1.5-4.015 2.76 2.76 0 0 1 3.281 1.233c.367.633.47 1.387.285 2.096z"
+        d="M21.54 30.311A7.999 7.999 0 1 1 6.07 26.24a7.999 7.999 0 0 1 15.47 4.072zm5.614 1.504A13.821 13.821 0 0 1 0 28.249v-10.9a4.369 4.369 0 0 1 4.361 4.347v6.553A9.453 9.453 0 0 0 22.98 30.69l4.296-15.905a2.182 2.182 0 1 1 4.218 1.124l-4.34 15.905zm-4.296-6.352l4.719-17.58a2.18 2.18 0 1 0-4.21-1.124l-3.782 14.014a9.46 9.46 0 0 1 3.259 4.69h.014zm-4.54-5.507l4.597-17.215a2.18 2.18 0 1 0-4.21-1.124L14.07 18.803c.727.022 1.448.13 2.149.323a9.76 9.76 0 0 1 2.084.83h.014zm-5.729-1.045l3.502-13.112a2.182 2.182 0 1 0-4.218-1.124L7.39 21.338a9.495 9.495 0 0 1 5.17-2.427h.029zm4.74 10.276a3.638 3.638 0 1 1-2.577-4.44 3.645 3.645 0 0 1 2.578 4.44z"
       />
     </svg>
   );

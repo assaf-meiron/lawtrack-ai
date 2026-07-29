@@ -1,10 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
-  ArrowLeft, Download, FileText, Layers, Check, X, Pencil, Loader2, ExternalLink, UploadCloud,
-  HelpCircle, Copy, ClipboardCheck, MessageSquare, Send, Sparkles,
+  ArrowLeft, FilePlus2, FileText, Layers, Check, X, Pencil, Loader2, ExternalLink, UploadCloud,
+  HelpCircle, Copy, ClipboardCheck, MessageSquare, Send, Sparkles, AlertTriangle, CheckCircle2,
 } from "lucide-react";
 import * as api from "./api.js";
-import { T, CLASS, CLASS_ORDER, counts, confidenceMeta, countryFlag, docTypeLabel, norm, LayerChip } from "./shared.jsx";
+import {
+  T, CLASS, CLASS_ORDER, counts, confidenceMeta, countryFlag, docTypeLabel, norm, LayerChip,
+  LAYER_TYPE_META,
+} from "./shared.jsx";
 
 // Copy text to the clipboard with a graceful fallback for non-secure contexts.
 async function copyToClipboard(text) {
@@ -29,6 +32,7 @@ export default function ReviewScreen({ docId, onBack, fireToast }) {
   const [viewMode, setViewMode] = useState("text"); // "text" | "image" | "both" — scanned docs only
   const [renaming, setRenaming] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
+  const [creating, setCreating] = useState(false);   // the Create Pay Policy dialog
   const spanRefs = useRef({});
   const pageRefs = useRef({});
   const cardRefs = useRef({});
@@ -107,16 +111,6 @@ export default function ReviewScreen({ docId, onBack, fireToast }) {
     }
   }
 
-  async function download(kind) {
-    try {
-      if (kind === "csv") await api.downloadFile(`/api/documents/${doc.id}/change-set.csv`, `change-set-${doc.id}.csv`);
-      else if (kind === "json") await api.downloadFile(`/api/documents/${doc.id}/change-set.json`, `change-set-${doc.id}.json`);
-      else await api.downloadFile(`/api/documents/${doc.id}/decision-record`, `decision-record-${doc.id}.json`);
-    } catch (e) {
-      fireToast(e.message, "error");
-    }
-  }
-
   async function finalize() {
     try {
       const r = await api.finalizeDocument(doc.id);
@@ -183,7 +177,15 @@ export default function ReviewScreen({ docId, onBack, fireToast }) {
               <FileText size={15} /> Open PDF
             </button>
           )}
-          <ExportMenu onDownload={download} />
+          {/* Turn what was just reviewed into a pay policy of its own. It sits before "Update layer"
+              because the two are alternatives, not steps: update an existing layer, or spin the
+              document out into a new one. */}
+          <button onClick={() => setCreating(true)}
+            title="Create a new pay policy from the findings accepted on this document"
+            className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium active:scale-95 transition-transform"
+            style={{ background: "#fff", border: `1px solid ${T.line2}`, color: T.ink2 }}>
+            <FilePlus2 size={15} /> Create Pay Policy
+          </button>
           <button onClick={finalize} disabled={committable === 0}
             title={committable === 0 ? "Accept or edit findings to commit them" : "Commit accepted findings to the layer as a new version"}
             className="flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-sm font-semibold text-white active:scale-95 transition-transform"
@@ -265,34 +267,320 @@ export default function ReviewScreen({ docId, onBack, fireToast }) {
           </div>
         </div>
       </div>
+
+      {creating && (
+        <CreatePayPolicyDialog doc={doc} findings={findings}
+          onClose={() => setCreating(false)} fireToast={fireToast} />
+      )}
     </div>
   );
 }
 
-function ExportMenu({ onDownload }) {
-  const [open, setOpen] = useState(false);
+/* ---- Create Pay Policy — spin a reviewed document out into a pay policy of its own ----
+
+   ⚠️ DEMO STUB. Nothing here is persisted. The dialog computes what the new policy *would* contain
+   from the findings already on screen, and the Create button reports that back — it does not call the
+   API and the policy will not appear in the Knowledge Hub. Two consequences worth knowing before
+   anyone builds on this:
+
+   - The success panel is deliberately worded to describe the *contents* of the policy, never its
+     existence somewhere else. A demo may simplify; it must not assert something a click can disprove.
+   - Making it real is a small, known step: `GET /api/documents/{id}/config-diff` already returns
+     `proposed_config` (the layer's config with every accepted/edited finding applied), which is
+     exactly the config a new PayPolicy should be born with. `POST /api/policies` creates a layer but
+     hardcodes `config={}`, so it needs either a `config` field or a dedicated
+     `POST /api/documents/{id}/create-pay-policy`. The summary below is computed client-side from the
+     same findings, so the two agree.
+
+   The one thing it does not fake is the *state of the review*: outstanding findings are counted off
+   the real review statuses, and what they mean for the resulting policy is stated plainly. A reviewer
+   is warned and then trusted — the warning does not block, because deciding to ship a partial policy
+   is a judgement the person doing the review is allowed to make. */
+
+// Statuses that actually contribute a value to a config. `unsure` is an open question and `proposed`
+// was never looked at — neither is a decision, so neither lands in the policy.
+const APPLIED_STATUS = ["approved", "corrected"];
+
+function suggestedName(doc) {
+  // The agreement family is the closest thing the document has to a layer name; the title is the
+  // fallback. Either way the reviewer is expected to edit it — this is a starting point, not a guess.
+  return doc.cba_name || doc.title || "New pay policy";
+}
+
+// Module scope, not nested: a component redefined every render remounts its subtree, and the name
+// input would lose focus on every keystroke.
+function PolicyField({ label, hint, children }) {
   return (
-    <div className="relative">
-      <button onClick={() => setOpen((o) => !o)}
-        className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium"
-        style={{ background: "#fff", border: `1px solid ${T.line2}`, color: T.ink2 }}>
-        <Download size={15} /> Export
-      </button>
-      {open && (
-        <div className="absolute right-0 mt-1 rounded-xl overflow-hidden z-20" style={{ background: "#fff", border: `1px solid ${T.line2}`, boxShadow: "0 8px 24px rgba(0,0,0,0.12)", width: 240 }}>
-          {[
-            ["csv", "Change-set (CSV)"],
-            ["json", "Change-set (JSON)"],
-            ["record", "Decision record (JSON)"],
-          ].map(([k, label]) => (
-            <button key={k} onClick={() => { setOpen(false); onDownload(k); }}
-              className="w-full text-left px-3 py-2.5 text-sm hover:bg-gray-50" style={{ borderBottom: `1px solid ${T.line}`, color: T.ink }}>
-              {label}
+    <label className="block mt-3.5">
+      <div className="uppercase tracking-wider mb-1 flex items-baseline gap-2" style={{ fontSize: 9, color: T.faint }}>
+        {label}
+        {hint && <span className="normal-case tracking-normal" style={{ fontSize: 10 }}>{hint}</span>}
+      </div>
+      {children}
+    </label>
+  );
+}
+
+const inputStyle = {
+  color: T.ink, border: `1px solid ${T.line2}`, background: "#fff",
+};
+
+function CreatePayPolicyDialog({ doc, findings, onClose, fireToast }) {
+  const [name, setName] = useState(() => suggestedName(doc));
+  const [layerType, setLayerType] = useState("cba");
+  const [jurisdiction, setJurisdiction] = useState(doc.jurisdiction || "");
+  const [subtitle, setSubtitle] = useState(doc.cba_name && doc.cba_name !== doc.title
+    ? doc.subtitle || doc.cba_name : doc.subtitle || "");
+  const [busy, setBusy] = useState(false);
+  const [created, setCreated] = useState(null);
+
+  /* What the policy is made of, derived from the findings on screen rather than fetched — so the
+     numbers in this dialog and the cards behind it can never disagree. */
+  const summary = useMemo(() => {
+    const applied = findings.filter((f) => APPLIED_STATUS.includes(f.review_status));
+    // A gap has no home in the config by definition, so an accepted gap still contributes no field.
+    const gaps = applied.filter((f) => f.classification === "gap");
+    const configured = applied.filter((f) => f.classification !== "gap");
+    const fields = configured.map((f) => ({
+      key: f.capability_code || f.clause_family,
+      label: f.policy_field || f.capability_code || f.clause_family,
+      value: f.final_value || f.proposed_value || "—",
+      tab: f.policy_tab,
+    }));
+    // Last decision wins per capability, mirroring how the backend folds findings into a config.
+    const byField = new Map(fields.map((f) => [f.key, f]));
+    return {
+      applied: applied.length,
+      gaps: gaps.length,
+      rejected: findings.filter((f) => f.review_status === "rejected").length,
+      undecided: findings.filter((f) => f.review_status === "proposed").length,
+      openQuestions: findings.filter((f) => f.review_status === "unsure").length,
+      fields: [...byField.values()],
+      tabs: new Set(configured.map((f) => f.policy_tab)).size,
+      total: findings.length,
+    };
+  }, [findings]);
+
+  const outstanding = summary.undecided + summary.openQuestions;
+  const trimmed = name.trim();
+
+  async function create() {
+    if (!trimmed || busy) return;
+    setBusy(true);
+    // A beat, so the click reads as an action rather than an instant state flip.
+    await new Promise((r) => setTimeout(r, 650));
+    setCreated({ name: trimmed, layerType, jurisdiction: jurisdiction.trim(), subtitle: subtitle.trim() });
+    setBusy(false);
+    fireToast(`Pay policy “${trimmed}” created from ${summary.applied} accepted findings`, "ready");
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: "rgba(35,40,56,0.45)" }} onClick={onClose}>
+      <div className="rounded-2xl overflow-hidden flex flex-col" onClick={(e) => e.stopPropagation()}
+        style={{ background: "#fff", width: 560, maxHeight: "90vh", boxShadow: "0 24px 64px rgba(0,0,0,0.3)" }}>
+
+        <div className="px-5 py-4 flex items-center justify-between shrink-0" style={{ borderBottom: `1px solid ${T.line}` }}>
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="flex items-center justify-center rounded-lg shrink-0"
+              style={{ width: 32, height: 32, background: created ? "#059669" : T.ink }}>
+              {created ? <Check size={17} color="#fff" /> : <FilePlus2 size={17} color="#fff" />}
+            </div>
+            <div className="min-w-0">
+              <div className="text-base font-semibold" style={{ color: T.ink }}>
+                {created ? "Pay policy created" : "Create a pay policy"}
+              </div>
+              <div className="text-xs truncate" style={{ color: T.muted }}>
+                {created ? `${summary.fields.length} fields written from this review`
+                  : `From the findings you accepted on ${doc.title}`}
+              </div>
+            </div>
+          </div>
+          <button onClick={onClose} className="rounded-lg p-1 hover:bg-gray-100 shrink-0">
+            <X size={18} color={T.muted} />
+          </button>
+        </div>
+
+        <div className="p-5 overflow-y-auto">
+          {created ? (
+            <CreatedPanel created={created} summary={summary} />
+          ) : (
+            <>
+              {/* Where the review actually stands. Stated before the form, because it changes what
+                  the reviewer is agreeing to when they press Create. */}
+              {outstanding > 0 ? (
+                <div className="rounded-xl px-3.5 py-3 flex items-start gap-2.5"
+                  style={{ background: "#fffbeb", border: "1px solid #fde68a" }}>
+                  <AlertTriangle size={15} color="#b45309" className="shrink-0" style={{ marginTop: 1 }} />
+                  <div className="text-xs leading-relaxed" style={{ color: "#92400e" }}>
+                    <div className="font-semibold" style={{ fontSize: 12.5 }}>
+                      The review isn’t finished — {outstanding} of {summary.total} findings are still open.
+                    </div>
+                    <div className="mt-1">
+                      {[summary.undecided > 0 && `${summary.undecided} not yet decided`,
+                        summary.openQuestions > 0 && `${summary.openQuestions} parked as ${summary.openQuestions === 1 ? "an open question" : "open questions"}`]
+                        .filter(Boolean).join(" · ")}.
+                      {" "}Those are <strong>left out</strong> of the new policy — it is built from the{" "}
+                      {summary.applied} finding{summary.applied === 1 ? "" : "s"} you accepted or edited.
+                      You can create it now and revisit the rest, or close this and finish the review first.
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="rounded-xl px-3.5 py-2.5 flex items-start gap-2.5"
+                  style={{ background: "#ecfdf5", border: "1px solid #a7f3d0" }}>
+                  <CheckCircle2 size={15} color="#047857" className="shrink-0" style={{ marginTop: 1 }} />
+                  <div className="text-xs leading-relaxed" style={{ color: "#065f46" }}>
+                    Every finding on this document has been decided. The new policy carries all{" "}
+                    {summary.applied} you accepted or edited.
+                  </div>
+                </div>
+              )}
+
+              <PolicyField label="Policy name" hint="what your team will see in the Knowledge Hub">
+                <input autoFocus value={name} onChange={(e) => setName(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter" && trimmed) create(); }}
+                  placeholder="e.g. Brazil — Retail Standard 2026"
+                  className="w-full rounded-lg px-3 py-2 text-sm outline-none" style={inputStyle} />
+              </PolicyField>
+
+              <div className="flex gap-3">
+                <div className="flex-1 min-w-0">
+                  <PolicyField label="Layer type">
+                    <select value={layerType} onChange={(e) => setLayerType(e.target.value)}
+                      className="w-full rounded-lg px-2.5 py-2 text-sm outline-none" style={inputStyle}>
+                      {Object.entries(LAYER_TYPE_META).map(([v, meta]) => (
+                        <option key={v} value={v}>{meta.full}</option>
+                      ))}
+                    </select>
+                  </PolicyField>
+                </div>
+                <div style={{ width: 150 }}>
+                  <PolicyField label="Jurisdiction">
+                    <div className="flex items-center gap-2 rounded-lg px-2.5" style={inputStyle}>
+                      <span style={{ fontSize: 14 }}>{countryFlag(jurisdiction)}</span>
+                      <input value={jurisdiction} onChange={(e) => setJurisdiction(e.target.value.toUpperCase())}
+                        className="flex-1 min-w-0 py-2 text-sm outline-none" style={{ color: T.ink, border: "none" }} />
+                    </div>
+                  </PolicyField>
+                </div>
+              </div>
+
+              <PolicyField label="Subtitle" hint="optional">
+                <input value={subtitle} onChange={(e) => setSubtitle(e.target.value)}
+                  placeholder="e.g. CCT Comércio Varejista SP"
+                  className="w-full rounded-lg px-3 py-2 text-sm outline-none" style={inputStyle} />
+              </PolicyField>
+
+              <ContentsSummary summary={summary} />
+            </>
+          )}
+        </div>
+
+        <div className="px-5 py-3.5 flex items-center gap-2 shrink-0" style={{ borderTop: `1px solid ${T.line}`, background: "#fbfcfe" }}>
+          {created ? (
+            <button onClick={onClose}
+              className="ml-auto flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold text-white active:scale-95 transition-transform"
+              style={{ background: T.ink }}>
+              Done
             </button>
+          ) : (
+            <>
+              <span className="text-xs" style={{ color: T.faint }}>
+                {summary.fields.length} field{summary.fields.length === 1 ? "" : "s"} will be written
+              </span>
+              <button onClick={onClose}
+                className="ml-auto rounded-lg px-3 py-2 text-sm font-medium"
+                style={{ background: "#fff", border: `1px solid ${T.line2}`, color: T.ink2 }}>
+                Cancel
+              </button>
+              <button onClick={create} disabled={!trimmed || busy}
+                title={!trimmed ? "Give the policy a name first" : undefined}
+                className="flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold text-white active:scale-95 transition-transform"
+                style={{ background: trimmed && !busy ? "#059669" : T.line2,
+                  cursor: trimmed && !busy ? "pointer" : "not-allowed" }}>
+                {busy ? <Loader2 size={15} className="animate-spin" /> : <FilePlus2 size={15} />}
+                {busy ? "Creating…" : outstanding > 0 ? "Create anyway" : "Create pay policy"}
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* What the accepted findings add up to. The counts that are *excluded* are shown next to the ones
+   that are included — a config built from 8 of 12 findings should never look like a config built
+   from 12. */
+function ContentsSummary({ summary }) {
+  return (
+    <div className="mt-4 rounded-xl overflow-hidden" style={{ border: `1px solid ${T.line}` }}>
+      <div className="px-3.5 py-2 flex items-center gap-2" style={{ background: "#f7f9fc", borderBottom: `1px solid ${T.line}` }}>
+        <Layers size={12} color={T.muted} />
+        <span className="text-xs font-semibold" style={{ color: T.ink2 }}>What goes into it</span>
+        <span className="ml-auto text-xs" style={{ color: T.faint }}>
+          {summary.fields.length} field{summary.fields.length === 1 ? "" : "s"} · {summary.tabs} tab{summary.tabs === 1 ? "" : "s"}
+        </span>
+      </div>
+      {summary.fields.length === 0 ? (
+        <div className="px-3.5 py-4 text-xs" style={{ color: T.faint }}>
+          Nothing has been accepted yet, so the policy would be created empty. Accept or edit a finding
+          to give it a configuration.
+        </div>
+      ) : (
+        <div className="flex flex-col" style={{ maxHeight: 168, overflowY: "auto" }}>
+          {summary.fields.map((f) => (
+            <div key={f.key} className="px-3.5 py-2 flex items-baseline gap-3" style={{ borderBottom: `1px solid ${T.line}` }}>
+              <span className="text-xs shrink-0 rounded px-1.5 py-0.5 font-semibold"
+                style={{ background: "#eef2ff", color: "#4338ca", fontSize: 10 }}>{f.key}</span>
+              <span className="text-xs min-w-0 flex-1 truncate" style={{ color: T.muted }}>{f.label}</span>
+              <span className="text-xs font-medium text-right" style={{ color: T.ink, maxWidth: 200 }}>{f.value}</span>
+            </div>
           ))}
         </div>
       )}
+      {(summary.gaps > 0 || summary.rejected > 0) && (
+        <div className="px-3.5 py-2 text-xs" style={{ background: "#fbfcfe", color: T.faint }}>
+          Excluded:{" "}
+          {[summary.gaps > 0 && `${summary.gaps} gap${summary.gaps === 1 ? "" : "s"} (no field to hold ${summary.gaps === 1 ? "it" : "them"})`,
+            summary.rejected > 0 && `${summary.rejected} rejected`].filter(Boolean).join(" · ")}.
+        </div>
+      )}
     </div>
+  );
+}
+
+function CreatedPanel({ created, summary }) {
+  const meta = LAYER_TYPE_META[created.layerType];
+  return (
+    <>
+      <div className="rounded-xl px-4 py-3.5" style={{ background: "#ecfdf5", border: "1px solid #a7f3d0" }}>
+        <div className="flex items-center gap-2">
+          <span style={{ fontSize: 15 }}>{countryFlag(created.jurisdiction)}</span>
+          <span className="text-sm font-semibold" style={{ color: "#065f46" }}>{created.name}</span>
+          <span className="uppercase tracking-wide rounded px-1.5 py-0.5 shrink-0"
+            style={{ fontSize: 9, background: "#d1fae5", color: "#047857" }}>{meta?.label || created.layerType}</span>
+        </div>
+        {created.subtitle && (
+          <div className="text-xs mt-1" style={{ color: "#047857" }}>{created.subtitle}</div>
+        )}
+        <div className="text-xs mt-2 leading-relaxed" style={{ color: "#065f46" }}>
+          Version 1, configured from the {summary.applied} finding{summary.applied === 1 ? "" : "s"} accepted on this
+          document — {summary.fields.length} field{summary.fields.length === 1 ? "" : "s"} across {summary.tabs}{" "}
+          tab{summary.tabs === 1 ? "" : "s"}, each one traceable to the clause that justified it.
+        </div>
+      </div>
+      {summary.undecided + summary.openQuestions > 0 && (
+        <div className="mt-3 rounded-xl px-3.5 py-2.5 text-xs leading-relaxed"
+          style={{ background: "#fffbeb", border: "1px solid #fde68a", color: "#92400e" }}>
+          {summary.undecided + summary.openQuestions} finding
+          {summary.undecided + summary.openQuestions === 1 ? "" : "s"} were still open and are not in this
+          policy. They stay on the document, so finishing the review and updating the layer will pick them up.
+        </div>
+      )}
+      <ContentsSummary summary={summary} />
+    </>
   );
 }
 
