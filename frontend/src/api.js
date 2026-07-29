@@ -135,6 +135,11 @@ export const advisorSummary = (jurisdiction, history) =>
 export const agentStatus = () => req("/api/agent/status");
 export const runAgentScan = () => req("/api/agent/scan", { method: "POST" });
 
+// --- payroll validation (punches vs the CCT / statute) ---
+// groups: the business role groups, by country. run: the whole validation for one group.
+export const validationGroups = () => req("/api/validation/groups");
+export const runValidation = (groupKey) => req(`/api/validation/groups/${groupKey}`);
+
 // --- verified output ---
 export const listRules = () => req("/api/rules");
 export const listConfigValues = () => req("/api/config-values");

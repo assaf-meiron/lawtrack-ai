@@ -16,7 +16,7 @@ from fastapi.responses import JSONResponse
 from . import models  # noqa: F401 — register tables on Base.metadata
 from .config import get_settings
 from .db import Base, SessionLocal, engine
-from .routers import advisor, agent, auth, documents, output, policies, review
+from .routers import advisor, agent, auth, documents, output, policies, review, validation
 
 logging.basicConfig(level=get_settings().log_level.upper())
 log = logging.getLogger("lawtrack")
@@ -85,3 +85,4 @@ app.include_router(documents.router)
 app.include_router(review.router)
 app.include_router(output.router)
 app.include_router(agent.router)
+app.include_router(validation.router)
