@@ -5,7 +5,9 @@ import {
   Scale, Copy, Check, Filter, Ban, Fingerprint, Wrench, Send, ListChecks,
 } from "lucide-react";
 import { T } from "./shared.jsx";
-import { SEV, CLEAR, sevMeta, num, money, pct, ScoreDial, Tile } from "./validationShared.jsx";
+import {
+  SEV, CLEAR, sevMeta, runStatus, departmentName, num, money, pct, ScoreDial, Tile,
+} from "./validationShared.jsx";
 import ValidationOverview from "./ValidationOverview.jsx";
 
 /* Payroll Validation — the punches, checked against the agreement they were collected under.
@@ -23,7 +25,8 @@ export default function PayrollValidationScreen({ fireToast, onOpenLayers }) {
   const [run, setRun] = useState(null);
 
   if (run) {
-    return <Dashboard run={run} onBack={() => setRun(null)} fireToast={fireToast} onOpenLayers={onOpenLayers} />;
+    return <Dashboard run={run} onBack={() => { window.scrollTo({ top: 0 }); setRun(null); }}
+      fireToast={fireToast} onOpenLayers={onOpenLayers} />;
   }
   return <ValidationOverview fireToast={fireToast} onOpenDashboard={setRun} />;
 }
@@ -69,14 +72,11 @@ function Dashboard({ run, onBack, fireToast, onOpenLayers }) {
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-2 flex-wrap">
             <span style={{ fontSize: 15 }}>{group.flag}</span>
-            <h1 className="text-lg font-semibold tracking-tight" style={{ color: T.ink }}>{group.name}</h1>
+            <h1 className="text-lg font-semibold tracking-tight" style={{ color: T.ink }}>{departmentName(group)}</h1>
             <span className="text-xs" style={{ color: T.muted }}>{group.category}</span>
           </div>
-          <div className="text-xs mt-1 leading-snug" style={{ color: T.muted }}>
-            {group.cct_official} <span style={{ color: T.line2 }}>·</span> {group.cct_registration}
-          </div>
-          <div className="text-xs mt-0.5 leading-snug" style={{ color: T.faint }}>
-            {group.union_official} <span style={{ color: T.line2 }}>·</span> {group.employer_body}
+          <div className="text-xs mt-1 leading-snug" style={{ color: T.faint }}>
+            {group.cct_registration}
           </div>
         </div>
         <CopyReport run={run} fireToast={fireToast} />
@@ -85,17 +85,12 @@ function Dashboard({ run, onBack, fireToast, onOpenLayers }) {
       {/* the one number the view leads with, and what it is made of */}
       <div className="mt-4 rounded-xl overflow-hidden" style={{ background: T.panel, border: `1px solid ${T.line}` }}>
         <div className="px-5 py-5 flex items-center gap-6 flex-wrap">
-          <ScoreDial score={run.score} grade={run.grade} />
+          <ScoreDial score={run.score} grade={run.grade} tone={runStatus(run).tone} />
           <div className="min-w-0 flex-1" style={{ minWidth: 260 }}>
             <div className="text-sm font-semibold" style={{ color: T.ink }}>
               {totals.rules_breached === 0
-                ? `All ${totals.rules_evaluated} rules clear for ${period.label}.`
-                : `${totals.rules_breached} of ${totals.rules_evaluated} rules breached in ${period.label}.`}
-            </div>
-            <div className="text-xs mt-1.5 leading-relaxed" style={{ color: T.muted }}>
-              {num(totals.employees_in_breach)} of {num(totals.employees)} employees
-              ({pct(totals.employees_in_breach / totals.employees)}) appear in at least one breach, across{" "}
-              {num(totals.violations)} occurrences.
+                ? `All ${totals.rules_evaluated} rules clear.`
+                : `${totals.rules_breached} of ${totals.rules_evaluated} rules breached · ${pct(totals.employees_in_breach / totals.employees)} of staff affected.`}
             </div>
             <div className="mt-2.5 flex items-center gap-1.5 flex-wrap">
               {["critical", "high", "medium"].map((sev) => {
@@ -142,7 +137,7 @@ function Dashboard({ run, onBack, fireToast, onOpenLayers }) {
         </h2>
         <span className="text-xs" style={{ color: T.faint }}>
           {shown.length === breached.length
-            ? `${breached.length} rules, worst first`
+            ? `${breached.length} rule${breached.length === 1 ? "" : "s"}, worst first`
             : `${shown.length} of ${breached.length} rules shown`}
         </span>
         <div className="ml-auto flex items-center gap-2 flex-wrap">
@@ -179,20 +174,12 @@ function Dashboard({ run, onBack, fireToast, onOpenLayers }) {
       {clear.length > 0 && <ClearRules rules={clear} />}
       {group.exclusions.length > 0 && <Exclusions exclusions={group.exclusions} />}
 
-      <div className="mt-5 rounded-xl px-4 py-3 text-xs leading-relaxed"
+      <div className="mt-5 rounded-xl px-4 py-2.5 text-xs leading-snug flex items-center gap-2"
         style={{ background: "#fbfcfe", border: `1px solid ${T.line}`, color: T.faint }}>
-        <div className="flex items-start gap-2">
-          <Fingerprint size={13} className="shrink-0" style={{ marginTop: 1 }} />
-          <div>
-            Punches read from <strong style={{ color: T.muted, fontWeight: 600 }}>{run.punch_source}</strong> for{" "}
-            {period.start} → {period.end} — {num(totals.punch_records)} punch records across{" "}
-            {num(totals.days_analyzed)} worked days.{" "}
-            <strong style={{ color: T.muted, fontWeight: 600 }}>Exposure is an indicative estimate</strong> — the
-            suppressed time at its statutory premium plus the reflex effects that ride along, per occurrence. It
-            is a triage number for deciding what to fix first, not a payroll calculation and not a provision.{" "}
-            <strong style={{ color: T.muted, fontWeight: 600 }}>Score basis:</strong> {run.score_basis} Findings are
-            a cited draft for expert review.
-          </div>
+        <Fingerprint size={13} className="shrink-0" />
+        <div>
+          {run.punch_source} · {period.start} → {period.end}. Exposure is indicative, not a payroll calculation.
+          Cited draft for expert review.
         </div>
       </div>
     </div>
@@ -212,11 +199,11 @@ function ActionPanel({ run, onOpenLayers, fireToast }) {
   const scheduleRules = breached.filter((r) => !CONFIG_FIX_CODES.has(r.code));
 
   const openLayers = () => {
-    fireToast(`Opening the Knowledge Hub — check ${run.group.policy_key ? "the " + run.group.policy_key + " layer's" : "this group's"} rate and tolerance fields against the CCT.`, "neutral");
+    fireToast("Opening the Knowledge Hub.", "neutral");
     onOpenLayers?.();
   };
   const assignSchedule = () => {
-    fireToast(`Queued for the ${run.group.name} site managers — ${scheduleRules.length} rule${scheduleRules.length === 1 ? "" : "s"} to fix in the roster.`, "ready");
+    fireToast(`Queued for ${departmentName(run.group)} site managers.`, "ready");
   };
 
   return (
@@ -224,14 +211,13 @@ function ActionPanel({ run, onOpenLayers, fireToast }) {
       <div className="px-4 py-2.5 flex items-center gap-2" style={{ borderBottom: `1px solid ${T.line}` }}>
         <ListChecks size={14} color={T.ink2} />
         <span className="text-sm font-semibold" style={{ color: T.ink }}>What to do next</span>
-        <span className="text-xs" style={{ color: T.faint }}>the {breached.length} breaches above, split by who fixes them</span>
       </div>
       <div className="grid" style={{ gridTemplateColumns: configRules.length && scheduleRules.length ? "1fr 1fr" : "1fr" }}>
         {configRules.length > 0 && (
           <ActionCard
             Icon={Wrench}
             title="Fix the pay-policy configuration"
-            body={`${configRules.length} rule${configRules.length === 1 ? "" : "s"} — ${configRules.map((r) => CONFIG_FIX_LABELS[r.code] || r.title).join(", ")} — are a rate or threshold set narrower or lower than the CCT requires. One config change clears every occurrence.`}
+            body={`${configRules.length} rule${configRules.length === 1 ? "" : "s"}: ${configRules.map((r) => CONFIG_FIX_LABELS[r.code] || r.title).join(", ")}. One config change clears it.`}
             exposure={configRules.reduce((n, r) => n + r.exposure, 0)}
             symbol={run.totals.symbol}
             ctaLabel="Open Knowledge Hub"
@@ -243,7 +229,7 @@ function ActionPanel({ run, onOpenLayers, fireToast }) {
           <ActionCard
             Icon={Send}
             title="Assign to the scheduling owners"
-            body={`${scheduleRules.length} rule${scheduleRules.length === 1 ? "" : "s"} come from how people are actually rostered — rest gaps, rotations, hour-bank balances — and need a per-site schedule change, not a config edit.`}
+            body={`${scheduleRules.length} rule${scheduleRules.length === 1 ? "" : "s"} need a per-site schedule change, not a config edit.`}
             exposure={scheduleRules.reduce((n, r) => n + r.exposure, 0)}
             symbol={run.totals.symbol}
             ctaLabel="Assign to site managers"

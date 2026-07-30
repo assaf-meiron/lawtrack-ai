@@ -73,6 +73,14 @@ NIGHT_FLOOR = 30
 # group spends its full weight; one breached for 5% of it spends a twentieth.
 SEVERITY_WEIGHT = {"critical": 45.0, "high": 25.0, "medium": 12.0}
 
+# What a breach costs *before* its reach is priced in. The share-scaled weight above is the bulk of the
+# penalty — a rule broken for everyone must dominate one broken for a handful — but scaling alone lets a
+# real finding round away to nothing: a critical rule reaching 1% of a large group costs 0.45 points,
+# and the department then reports a spotless 100 with a live violation listed underneath it. The floor
+# is what makes "some breaches" and "no breaches" different numbers no matter how few people are caught
+# by them, which is the whole claim the score is making.
+SEVERITY_FLOOR = {"critical": 6.0, "high": 3.0, "medium": 1.5}
+
 
 # --- the population ----------------------------------------------------------
 
@@ -1014,7 +1022,8 @@ def validate(group_key: str) -> dict:
     rules.sort(key=lambda r: (r["status"] != "breach", order[r["severity"]], -r["affected_employees"]))
 
     breached = [r for r in rules if r["status"] == "breach"]
-    penalty = sum(SEVERITY_WEIGHT[r["severity"]] * r["affected_share"] for r in breached)
+    penalty = sum(SEVERITY_FLOOR[r["severity"]] + SEVERITY_WEIGHT[r["severity"]] * r["affected_share"]
+                  for r in breached)
     score = max(0, min(100, round(100 - penalty)))
 
     in_breach = {v.employee.matricula for vs in per_rule.values() for v in vs}
@@ -1024,8 +1033,11 @@ def validate(group_key: str) -> dict:
         "score": score,
         "grade": grade(score),
         "score_basis": (
-            "100 minus each breached rule's severity weight (critical 45 · high 25 · medium 12), scaled by "
-            "the share of the group it reaches. A rule breached for everyone spends its full weight."
+            "100 minus, for every breached rule, a fixed cost for the breach existing at all "
+            "(critical 6 · high 3 · medium 1.5) plus its severity weight (critical 45 · high 25 · "
+            "medium 12) scaled by the share of the group it reaches. A rule breached for everyone spends "
+            "its full weight; one breached for a single employee still costs the fixed part, so only a "
+            "group with nothing found scores 100."
         ),
         "punch_source": ("Oitchau T&A · REP-P registro eletrônico de ponto (CLT Art. 74 §2º)"
                          if group.country == "BR"

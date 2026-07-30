@@ -5,6 +5,21 @@ import { T } from "./shared.jsx";
 /* Shared between the org-chart overview and the per-department dashboard, so a "Critical" chip and a
    62 score mean the same thing, in the same color, wherever either screen puts them on the page. */
 
+/* The org chart's node names. `group.name` is the legal business-role-group name ("Retail — São Paulo
+   store network") — accurate, but a mouthful for a chart meant to read at a glance. This is the short
+   name HR would actually give the box on an org chart; the full legal name still leads the dashboard
+   once someone opens it. */
+const DEPARTMENT_NAME = {
+  "br-retail-sp": "Retail",
+  "br-botic-franchise": "Franchise Retail",
+  "br-logistics-sp": "Logistics",
+  "br-healthcare-12x36": "Healthcare",
+  "br-banking": "Banking",
+  "mx-retail-cdmx": "Retail",
+  "mx-plant-nl": "Manufacturing",
+};
+export const departmentName = (group) => DEPARTMENT_NAME[group.key] || group.name;
+
 /* Severity is a *status* scale, not a series palette: four fixed steps, each shipped with an icon and
    a word so identity never rests on hue alone. The steps are checked for separation under deuteranopia
    and tritanopia as well as normal vision — amber sits at #ca8a04 rather than the more obvious #d97706
@@ -17,13 +32,37 @@ export const SEV = {
 export const CLEAR = { label: "Clear", Icon: CheckCircle2, ink: "#059669", soft: "#ecfdf5", line: "#a7f3d0", track: "#d1fae5" };
 export const sevMeta = (rule) => (rule.status === "clear" ? CLEAR : SEV[rule.severity]);
 
-/* The score's own colour, on the same three status steps — so a 62 and a "Critical" chip on the same
-   screen are saying the same thing in the same language. Also what a department node's border color
-   on the org chart is keyed to, so the chart and the dashboard read as one system. */
-export function scoreTone(score) {
-  if (score >= 85) return CLEAR;
-  if (score >= 70) return SEV.high;
-  return SEV.critical;
+/* "Status not supplied" — the fallback for a meter rendered without one. Grey deliberately: it is the
+   one hue that cannot be mistaken for a verdict, where defaulting to CLEAR's green would quietly
+   restate the bug this file exists to prevent. */
+const NEUTRAL = { label: "—", Icon: AlertCircle, ink: T.muted, soft: "#f4f6f9", line: T.line, track: T.line };
+
+/* A department's status, and it is read off the *findings* — never off the score.
+
+   Deriving it from the score was a lie the arithmetic told: a rule breached for two drivers out of 206
+   costs a couple of points, the department lands in the 90s, and a score band then labels it "Clear"
+   with a live violation listed underneath. No number in the 90s makes a breach disappear, so the only
+   thing that earns "Clear" here is having found nothing at all.
+
+   Escalation to Critical is about *materiality*, not the mere presence of a severe rule: one critical
+   rule catching a single employee is a finding to fix, not a red department. It goes red when a critical
+   rule reaches a tenth of the group, or when breaches pile up across five or more rules at once. */
+export function runStatus(run) {
+  const breached = run.totals.rules_breached;
+  if (breached === 0) return { label: "Clear", tone: CLEAR };
+  const material = run.rules.some(
+    (r) => r.status === "breach" && r.severity === "critical" && r.affected_share >= 0.1);
+  if (material || breached >= 5) return { label: "Critical", tone: SEV.critical };
+  return { label: "Needs attention", tone: SEV.high };
+}
+
+/* The same call for the organization-wide rollup: the worst status any one department is in. An org is
+   only "Clear" when every department under it is. */
+export function orgStatus(runs) {
+  const statuses = runs.map(runStatus);
+  if (statuses.some((s) => s.label === "Critical")) return { label: "Critical", tone: SEV.critical };
+  if (statuses.some((s) => s.label === "Needs attention")) return { label: "Needs attention", tone: SEV.high };
+  return { label: "Clear", tone: CLEAR };
 }
 
 /* Mirrors `grade()` in backend/app/validation.py exactly — needed here only for the org-wide aggregate
@@ -39,14 +78,23 @@ export function gradeFromScore(score) {
 
 export const num = (n) => (n ?? 0).toLocaleString("en-US");
 export const money = (n, symbol) => `${symbol}${Math.round(n ?? 0).toLocaleString("en-US")}`;
-export const pct = (share) => `${Math.round((share ?? 0) * 100)}%`;
+// Rounds to the nearest percent, except a genuinely nonzero share never reads as a flat "0%" — at
+// org scale, 6 real people can be <1% of the workforce, and that is a different claim from zero.
+export const pct = (share) => {
+  const s = share ?? 0;
+  if (s > 0 && s < 0.005) return "<1%";
+  return `${Math.round(s * 100)}%`;
+};
 
 /* The hero figure: one per view, ≥48px, in the product's own sans. The ring is a meter — the fill
    carries the severity and the track is a lighter step of the same hue, so state reads across the
    whole arc rather than only where the fill stops. Used both for one department's score and for the
-   organization-wide rollup, at two sizes. */
-export function ScoreDial({ score, grade, size = 116, label = "Compliance score" }) {
-  const tone = scoreTone(score);
+   organization-wide rollup, at two sizes.
+
+   `tone` is passed in rather than derived from the score, because the ring is the loudest thing on the
+   screen and a green one reads as "nothing to do here" — a claim only the findings can make, not the
+   number. Callers hand it the status tone from `runStatus`/`orgStatus`. */
+export function ScoreDial({ score, grade, tone = NEUTRAL, size = 116, label = "Compliance score" }) {
   const r = size / 2 - 12, c = 2 * Math.PI * r;
   const fontSize = Math.round(size * 0.38);
   return (

@@ -1,10 +1,12 @@
 import React, { useCallback, useEffect, useState } from "react";
 import {
-  ShieldCheck, Loader2, Users, MapPin, Clock, Fingerprint, Briefcase, ArrowRight, Check,
+  ShieldCheck, Loader2, Users, MapPin, Clock, Fingerprint, ArrowRight, Check,
 } from "lucide-react";
 import * as api from "./api.js";
 import { T } from "./shared.jsx";
-import { SEV, CLEAR, scoreTone, gradeFromScore, num, pct, ScoreDial, Tile } from "./validationShared.jsx";
+import {
+  SEV, CLEAR, runStatus, orgStatus, gradeFromScore, departmentName, num, pct, ScoreDial, Tile,
+} from "./validationShared.jsx";
 
 /* Payroll Validation — screen 1, the org chart.
 
@@ -56,12 +58,6 @@ function buildStages(group, run) {
     "Scoring compliance and ranking findings by severity"];
 }
 
-function orgStatusLabel(score) {
-  if (score >= 85) return "Clear";
-  if (score >= 70) return "Needs attention";
-  return "Critical";
-}
-
 export default function ValidationOverview({ fireToast, onOpenDashboard }) {
   const [catalog, setCatalog] = useState(null);
   const [runs, setRuns] = useState({});
@@ -91,7 +87,10 @@ export default function ValidationOverview({ fireToast, onOpenDashboard }) {
       sleep(RUN_MIN_MS),
     ]).catch((e) => { fireToast(e.message, "error"); return [null]; });
     setValidating(null);
-    if (result) onOpenDashboard(result);
+    if (result) {
+      window.scrollTo({ top: 0 });
+      onOpenDashboard(result);
+    }
   }, [runs, fireToast, onOpenDashboard]);
 
   if (!catalog) {
@@ -112,9 +111,7 @@ export default function ValidationOverview({ fireToast, onOpenDashboard }) {
         <div className="min-w-0">
           <h1 className="text-xl font-semibold tracking-tight" style={{ color: T.ink }}>Payroll Validation</h1>
           <p className="text-sm mt-1" style={{ color: T.muted, maxWidth: 780 }}>
-            Check the punches you already collected against the collective agreement they were collected under —
-            organized the way HR actually reviews it, by department. Every node below is a business role group
-            under one CCT, and every rule in that CCT is already run over the period's punches.
+            Punches checked against each department's collective agreement. Pick one to see where they don't match.
           </p>
           <div className="mt-2.5 flex items-center gap-3 flex-wrap text-xs" style={{ color: T.faint }}>
             <span className="inline-flex items-center gap-1.5">
@@ -166,7 +163,7 @@ function OverviewStrip({ catalog, runs }) {
 
   const byStatus = { critical: 0, attention: 0, clear: 0 };
   loadedRuns.forEach((r) => {
-    const label = orgStatusLabel(r.score);
+    const label = runStatus(r).label;
     if (label === "Clear") byStatus.clear += 1;
     else if (label === "Critical") byStatus.critical += 1;
     else byStatus.attention += 1;
@@ -176,16 +173,16 @@ function OverviewStrip({ catalog, runs }) {
     <>
       <div className="mt-4 rounded-xl overflow-hidden" style={{ background: T.panel, border: `1px solid ${T.line}` }}>
         <div className="px-5 py-5 flex items-center gap-6 flex-wrap">
-          <ScoreDial score={orgScore} grade={gradeFromScore(orgScore)} label="Organization compliance score" />
+          <ScoreDial score={orgScore} grade={gradeFromScore(orgScore)} tone={orgStatus(loadedRuns).tone}
+            label="Organization compliance score" />
           <div className="min-w-0 flex-1" style={{ minWidth: 260 }}>
             <div className="text-sm font-semibold" style={{ color: T.ink }}>
               {totalRulesBreached === 0
                 ? `All ${totalRulesEvaluated} rules clear across ${allGroups.length} departments.`
-                : `${totalRulesBreached} of ${totalRulesEvaluated} rules breached across ${allGroups.length} departments in ${catalog.countries.length} countries.`}
+                : `${totalRulesBreached} of ${totalRulesEvaluated} rules breached across ${allGroups.length} departments.`}
             </div>
-            <div className="text-xs mt-1.5 leading-relaxed" style={{ color: T.muted }}>
-              {num(totalInBreach)} of {num(totalEmployees)} employees ({pct(totalInBreach / totalEmployees)}) appear
-              in at least one breach, for {catalog.period.label}.
+            <div className="text-xs mt-1.5" style={{ color: T.muted }}>
+              {pct(totalInBreach / totalEmployees)} of staff affected · {catalog.period.label}
             </div>
             <div className="mt-2.5 flex items-center gap-1.5 flex-wrap">
               <StatusChip label="Critical" count={byStatus.critical} tone={SEV.critical} />
@@ -194,20 +191,16 @@ function OverviewStrip({ catalog, runs }) {
             </div>
           </div>
         </div>
-        <div className="px-5 py-2.5 text-xs leading-snug" style={{ borderTop: `1px solid ${T.line}`, background: "#fbfcfe", color: T.faint }}>
-          <strong style={{ color: T.muted, fontWeight: 600 }}>How this score is built.</strong> The headcount-weighted
-          average of every department's own score below — a department of 300 moves it more than one of 30.
-        </div>
       </div>
 
       <div className="mt-3 grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))" }}>
-        <Tile label="Departments checked" value={`${allGroups.length}`} sub={`${catalog.countries.length} countries`} />
+        <Tile label="Departments" value={`${allGroups.length}`} sub={`${catalog.countries.length} countries`} />
         <Tile label="Employees in breach" value={num(totalInBreach)}
-          sub={`${pct(totalInBreach / totalEmployees)} of ${num(totalEmployees)} checked`}
+          sub={`${pct(totalInBreach / totalEmployees)} of ${num(totalEmployees)}`}
           tone={totalInBreach ? SEV.critical : CLEAR} />
-        <Tile label="Departments needing attention" value={`${byStatus.critical + byStatus.attention} / ${allGroups.length}`}
+        <Tile label="Need attention" value={`${byStatus.critical + byStatus.attention} / ${allGroups.length}`}
           tone={byStatus.critical ? SEV.critical : byStatus.attention ? SEV.high : CLEAR} />
-        <Tile label="Rules breached org-wide" value={`${totalRulesBreached} / ${totalRulesEvaluated}`} />
+        <Tile label="Rules breached" value={`${totalRulesBreached} / ${totalRulesEvaluated}`} />
       </div>
     </>
   );
@@ -284,7 +277,8 @@ function CountryBranch({ country, runs, busy, onPick }) {
 
 function DepartmentNode({ group, run, busy, onPick }) {
   const loaded = !!run;
-  const tone = loaded ? scoreTone(run.score) : null;
+  const status = loaded ? runStatus(run) : null;
+  const tone = status?.tone;
   return (
     <button
       onClick={() => !busy && onPick(group)}
@@ -300,10 +294,7 @@ function DepartmentNode({ group, run, busy, onPick }) {
       }}
     >
       <div className="px-3.5 pt-3.5 pb-3" style={{ borderBottom: `1px solid ${T.line}` }}>
-        <div className="flex items-center gap-1.5" style={{ fontSize: 9, color: T.faint, fontWeight: 700 }}>
-          <Briefcase size={11} /> <span className="uppercase tracking-wider">Department</span>
-        </div>
-        <div className="mt-1.5 text-sm font-semibold leading-snug" style={{ color: T.ink }}>{group.name}</div>
+        <div className="text-sm font-semibold leading-snug" style={{ color: T.ink }}>{departmentName(group)}</div>
         <div className="mt-1.5 flex items-center gap-2.5 flex-wrap" style={{ fontSize: 10.5, color: T.faint }}>
           <span className="inline-flex items-center gap-1"><Users size={11} /> {num(group.headcount)}</span>
           <span className="inline-flex items-center gap-1"><MapPin size={11} /> {group.sites.length} sites</span>
@@ -313,24 +304,20 @@ function DepartmentNode({ group, run, busy, onPick }) {
       <div className="px-3.5 py-3 mt-auto">
         {!loaded ? (
           <div className="flex items-center gap-2 text-xs" style={{ color: T.faint }}>
-            <Loader2 size={13} className="animate-spin" /> Checking punches…
+            <Loader2 size={13} className="animate-spin" /> Checking…
           </div>
         ) : (
-          <>
-            <div className="rounded-lg px-2.5 py-1.5 flex items-center justify-between"
-              style={{ background: tone.soft, border: `1px solid ${tone.line}` }}>
-              <span className="inline-flex items-center gap-1.5" style={{ color: tone.ink, fontSize: 11, fontWeight: 700 }}>
-                <tone.Icon size={12} /> {orgStatusLabel(run.score)}
-              </span>
-              <span style={{ fontSize: 15, fontWeight: 700, color: tone.ink }}>{run.score}</span>
-            </div>
-            <div className="mt-1.5 leading-snug" style={{ fontSize: 10.5, color: T.faint }}>
+          <div className="rounded-lg px-2.5 py-1.5 flex items-center justify-between"
+            style={{ background: tone.soft, border: `1px solid ${tone.line}` }}>
+            <span className="inline-flex items-center gap-1.5" style={{ color: tone.ink, fontSize: 11, fontWeight: 700 }}>
+              <tone.Icon size={12} /> {status.label}
+            </span>
+            <span style={{ fontSize: 11, fontWeight: 600, color: tone.ink }}>
               {run.totals.rules_breached === 0
-                ? `All ${run.totals.rules_evaluated} rules clear`
-                : `${run.totals.rules_breached} of ${run.totals.rules_evaluated} rules breached · `
-                  + `${pct(run.totals.employees_in_breach / run.totals.employees)} of staff affected`}
-            </div>
-          </>
+                ? "no breaches"
+                : `${run.totals.rules_breached} breach${run.totals.rules_breached === 1 ? "" : "es"}`}
+            </span>
+          </div>
         )}
         <div className="mt-2 flex items-center justify-end gap-1"
           style={{ fontSize: 10.5, fontWeight: 600, color: T.muted }}>
@@ -363,10 +350,10 @@ function ValidatingOverlay({ group, stages }) {
         <div className="px-5 pt-5 pb-4" style={{ borderBottom: `1px solid ${T.line}` }}>
           <div className="flex items-center gap-2">
             <Loader2 size={16} className="animate-spin" color={T.signal} />
-            <span className="text-sm font-semibold" style={{ color: T.ink }}>Validating {group.name}</span>
+            <span className="text-sm font-semibold" style={{ color: T.ink }}>Validating {departmentName(group)}</span>
           </div>
           <div className="text-xs mt-1" style={{ color: T.muted }}>
-            {num(group.headcount)} employees · {group.cct_official}
+            {num(group.headcount)} employees
           </div>
           <div className="mt-3 rounded-full overflow-hidden" style={{ height: 5, background: T.line }}>
             <div style={{ width: `${donePct}%`, height: "100%", background: T.signal, transition: "width 400ms ease" }} />
