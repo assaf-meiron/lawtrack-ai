@@ -1,6 +1,3 @@
----
-name: ship
----
 ⚡ **FAST, NO THINKING.** Do not read diffs for context, do not summarize changes in prose, do not ask questions. Run the steps below and report the result.
 1. **Trunk guard** — `git branch --show-current`; if it's one of the trunk names above, stop and report. Otherwise proceed.
 2. **Stage & commit** — `git add -A`, then `git commit -m` with:
