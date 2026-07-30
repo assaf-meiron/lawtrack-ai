@@ -3,34 +3,42 @@
 LawTrack's review surface answers *"this document arrived, what does it change?"*. This answers the
 question the customer asks next: **"fine — but are the punches we already collected in breach?"**
 
-Two kinds of data live here, and the split matters:
+Three kinds of data live here, and the split between them is the whole point:
 
 * **RULES** — one operative obligation per entry, each with the article or CCT clause that creates
   it, the verbatim clause text, the numeric limit, and what a breach costs. Every rule carries the
   17-taxonomy `capability` code, so a violation found in the punches lands on the same pay-policy
   field the review surface would have configured. A rule is a *specification*, never a detector: the
   detector lives in `validation.py` and knows nothing about who is expected to breach it.
-* **GROUPS** — the business role groups a customer picks between. One group is one employee category
-  under one collective agreement, which is why the CCT and the union are named in full and by
-  registration number: "Retail" is not a compliance population, *"comerciários on CCT SP002145/2026,
-  represented by SECSP"* is.
+* **AGREEMENTS** — one collective agreement, named in full and by registration number, together with
+  the shift pattern its population works and the rules it is subject to. This is the legally
+  meaningful unit: a rule applies because *an agreement* says so, not because a department does.
+* **DEPARTMENTS** — what the customer actually picks. A department is *not* an agreement, and this is
+  the fact the model exists to carry: Global operations is drivers under the transport CCT, warehouse
+  staff under the commerce CCT, and planners under the administrative CCT, all in one box on the org
+  chart. So a department is a tuple of **segments** — one slice of its headcount per agreement — and
+  a validation run is the union of those slices, with every rule scored against the population
+  actually subject to it rather than against the department total.
 
-Brazil is modelled deep (five groups, fourteen rules — the CLT plus the clauses a CCT actually
-tightens) and Mexico alongside it (two groups, nine LFT rules), which mirrors where the product's
-coverage genuinely is. Note the vocabulary difference the UI surfaces: a Brazilian *CCT* is a
-**Convenção** Coletiva de Trabalho filed with the MTE, a Mexican *CCT* is a **Contrato** Colectivo de
-Trabajo registered with the CFCRL. Same acronym, different instrument.
+The departments are grouped into four organizational arms, which is how the chart reads top-down:
+Finance & governance, Legal & risk, People & strategy, Commercial & operations.
+
+Note the vocabulary difference the UI surfaces: a Brazilian *CCT* is a **Convenção** Coletiva de
+Trabalho filed with the MTE, a Mexican *CCT* is a **Contrato** Colectivo de Trabajo registered with
+the CFCRL. Same acronym, different instrument. A department sits in one jurisdiction — the exposure
+estimate is a single currency, and a run that mixed BRL and MXN into one number would be lying.
 
 `incidence` is demo scaffolding and is honest about it: it tells the punch generator in
-`validation.py` which share of a group to plant a given pattern in. The engine never reads it — it
-re-derives every violation from the punch stream alone, so the numbers on the dashboard are computed,
-not declared.
+`validation.py` which share of a *segment* to plant a given pattern in. The engine never reads it —
+it re-derives every violation from the punch stream alone, so the numbers on the dashboard are
+computed, not declared.
 
 That also means **incidence is a planting rate, not an expected finding rate, and the two do not
 match.** Three extra hours on a Tuesday breaches the daily cap, the weekly ceiling and — for a driver
-— the four-hour driving limit, so one planted pattern legitimately surfaces under several rules. Where
-a roster produces a condition on its own the incidence is simply 0.0: half the logistics fleet clocks
-in before 05:00, which is night work under Art. 73 whether or not anyone planted it.
+— the four-hour driving limit, so one planted pattern legitimately surfaces under several rules.
+Where a *configuration* is the breach the incidence is 0.0 and the finding still appears for everyone
+it touches: the logistics night premium is set to the statutory 20% where the CCT promised 30%, and
+that shortfall lands on every night hour the fleet works whether or not anything was planted.
 """
 from __future__ import annotations
 
@@ -50,11 +58,6 @@ MX_NIGHT = (20 * 60, 30 * 60)   # 20:00 → 06:00  (LFT Art. 60)
 
 SEVERITIES = ("critical", "high", "medium")
 
-# What one occurrence of a breach is worth, in the group's currency, used only for the exposure
-# estimate on the dashboard. These are indicative per-occurrence figures — the suppressed time at its
-# statutory premium, plus the reflex effects (DSR, FGTS, 13º) that ride along — not a payroll
-# calculation. The UI labels them as such; nothing here is a substitute for running payroll.
-
 
 @dataclass(frozen=True)
 class Rule:
@@ -71,7 +74,7 @@ class Rule:
     source_kind: str     # statute | cct
     quote: str           # the operative text, verbatim, in the language of the instrument
     consequence: str     # what a breach actually costs — the reason the row matters
-    unit_cost: float     # indicative exposure per occurrence, in the group's currency
+    unit_cost: float     # indicative exposure per occurrence, in the agreement's currency
     params: dict = field(default_factory=dict)
 
 
@@ -498,115 +501,189 @@ _MX_RULES: list[Rule] = [
 RULES: dict[str, Rule] = {r.code: r for r in (*_BR_RULES, *_MX_RULES)}
 
 
-# --- the business role groups ------------------------------------------------
+# --- the collective agreements ----------------------------------------------
 
 
 @dataclass(frozen=True)
 class Profile:
-    """The shift pattern a group's punches are generated from."""
+    """The shift pattern an agreement's population is rostered on."""
 
-    kind: str                 # retail | franchise | logistics | banking | scale_12x36 | mx_retail | mx_plant
+    kind: str                 # office | it | commerce | logistics | scale_12x36 | banking | lab | mx_office | mx_retail | mx_plant
     scheduled_minutes: int    # contracted worked minutes on a working day
     break_minutes: int        # scheduled unpaid break
     start_minutes: int        # nominal first punch-in
     start_jitter: int         # per-employee spread around the nominal start
     work_days: tuple[int, ...]  # weekdays scheduled, 0 = Monday
-    sunday_share: float = 0.0   # share of the group carrying a Sunday scale
+    sunday_share: float = 0.0   # share of the population carrying a Sunday scale
 
 
 @dataclass(frozen=True)
-class BusinessGroup:
-    """One employee category under one collective agreement — the unit a customer validates."""
+class Agreement:
+    """One collective agreement: who it covers, how they work, and which rules bind them.
+
+    This — not the department — is what makes a rule apply. Two departments whose staff sit under the
+    same agreement are subject to the same clauses, and one department whose staff sit under three are
+    subject to the union of all three.
+    """
 
     key: str
-    name: str
+    short: str            # the name the UI puts on a chip — "Comerciários (SECSP)"
     country: str          # BR | MX
     currency: str         # BRL | MXN
-    category: str         # the employee category *as the CCT defines it*
+    category: str         # the employee category *as the agreement defines it*
     cct_official: str     # the agreement's official name, in its own language
     cct_registration: str  # MTE Sistema Mediador (BR) / CFCRL (MX) registry number
     cct_validity: str
     union_official: str   # the workers' side, named in full
     employer_body: str    # the employers' side — a CCT has two signatories, both are named
-    headcount: int
-    sites: tuple[str, ...]
-    roles: tuple[str, ...]
     profile: Profile
     rules: tuple[str, ...]
-    incidence: dict[str, float]        # demo scaffolding — see the module docstring
     config: dict[str, float] = field(default_factory=dict)  # configured values a check compares against
-    policy_key: str | None = None      # the reviewed pay-policy layer this group runs on
+    policy_key: str | None = None      # the reviewed pay-policy layer this population runs on
     holidays: tuple[tuple[str, str], ...] = ()   # (ISO date, name) falling inside the period
-    # Rules deliberately *not* applied to this group, and the reason. A rule that does not apply and a
-    # rule nobody checked look identical on a dashboard unless the exclusion is stated.
+    # Rules deliberately *not* applied to this population, and the reason. A rule that does not apply
+    # and a rule nobody checked look identical on a dashboard unless the exclusion is stated.
     exclusions: tuple[tuple[str, str], ...] = ()
 
 
 # Holidays inside June 2026. Brazil: Corpus Christi (4 June 2026) is a municipal holiday across the
-# São Paulo metro and observed as one by retail, logistics and hospital rosters alike. Mexico has no
-# Art. 74 holiday in June — so `mx-holiday-double` is evaluated and reported clear *because nothing
-# fell in the period*, which is a materially different statement from "we didn't check".
+# São Paulo metro and observed as one by office, store, warehouse and hospital rosters alike. Mexico
+# has no Art. 74 holiday in June — so `mx-holiday-double` is evaluated and reported clear *because
+# nothing fell in the period*, which is a materially different statement from "we didn't check".
 _BR_HOLIDAYS = (("2026-06-04", "Corpus Christi — feriado municipal (SP)"),)
 
-GROUPS: list[BusinessGroup] = [
-    BusinessGroup(
-        key="br-retail-sp",
-        name="Retail — São Paulo store network",
+# The rule sets the two office agreements share, named once. An office population is subject to the
+# working-time floor and the clock, and to nothing that only a shift roster can breach.
+_BR_OFFICE_RULES = ("br-inter-11h", "br-intra-60m", "br-ot-daily-2h", "br-weekly-44h", "br-dsr-24h",
+                    "br-tolerance-10m", "br-holiday-double", "br-hour-bank")
+
+# Why the night and Sunday clauses are kept *out* of an office agreement rather than reported as
+# passes: a rule that cannot fire is not a rule that was satisfied.
+_BR_OFFICE_EXCLUSIONS = (
+    ("Night premium (CLT Art. 73 · Cláusula 18ª)",
+     "No office roster in the period reaches 22:00 — the buildings close at 20:00 and the badge log "
+     "confirms it. There is no night work to price, so the clause is kept out of the score rather "
+     "than reported as a pass."),
+    ("Sunday rotation (Cláusula 21ª da CCT)",
+     "The rotation clause governs establishments authorised to open on Sundays. An administrative "
+     "population is rostered Monday–Friday, so no rotation scale exists for it to breach."),
+)
+
+AGREEMENTS: dict[str, Agreement] = {a.key: a for a in (
+    # -- Brazil ---------------------------------------------------------------
+    Agreement(
+        key="br-admin",
+        short="Administrativos (SINDEEPRES)",
         country="BR",
         currency="BRL",
-        category="Comerciários — lojas de rua e shopping centers",
+        category="Empregados administrativos — sede e escritórios regionais",
+        cct_official="Convenção Coletiva de Trabalho 2026/2027 — Empregados em Empresas de Serviços "
+                     "Administrativos, Assessoria e Consultoria",
+        cct_registration="MTE / Sistema Mediador nº SP003118/2026",
+        cct_validity="1 Jan 2026 – 31 Dec 2026 (data-base 1º de janeiro)",
+        union_official="Sindicato dos Empregados em Empresas de Prestação de Serviços a Terceiros, "
+                       "Colocação e Administração de Mão de Obra do Estado de São Paulo (SINDEEPRES)",
+        employer_body="Federação Nacional das Empresas de Serviços e Recursos Humanos (FENASERHTT)",
+        profile=Profile(kind="office", scheduled_minutes=480, break_minutes=60, start_minutes=9 * 60,
+                        start_jitter=60, work_days=(0, 1, 2, 3, 4)),
+        rules=_BR_OFFICE_RULES,
+        config={"tolerance_minutes": 10.0},
+        policy_key=None,
+        holidays=_BR_HOLIDAYS,
+        exclusions=_BR_OFFICE_EXCLUSIONS,
+    ),
+    Agreement(
+        key="br-accounting",
+        short="Contabilistas (SINDCONT-SP)",
+        country="BR",
+        currency="BRL",
+        category="Contabilistas, auditores e técnicos em contabilidade",
+        cct_official="Convenção Coletiva de Trabalho 2026/2027 — Empregados em Empresas de Serviços "
+                     "Contábeis, Perícia e Auditoria do Estado de São Paulo",
+        cct_registration="MTE / Sistema Mediador nº SP002471/2026",
+        cct_validity="1 Jan 2026 – 31 Dec 2026 (data-base 1º de janeiro)",
+        union_official="Sindicato dos Contabilistas de São Paulo (SINDCONT-SP)",
+        employer_body="Federação Nacional das Empresas de Serviços Contábeis e das Empresas de "
+                      "Assessoramento, Perícias, Informações e Pesquisas (FENACON)",
+        profile=Profile(kind="office", scheduled_minutes=480, break_minutes=60, start_minutes=9 * 60,
+                        start_jitter=45, work_days=(0, 1, 2, 3, 4)),
+        rules=_BR_OFFICE_RULES,
+        config={"tolerance_minutes": 10.0},
+        policy_key=None,
+        holidays=_BR_HOLIDAYS,
+        exclusions=_BR_OFFICE_EXCLUSIONS,
+    ),
+    Agreement(
+        key="br-it",
+        short="Processamento de dados (SINDPD-SP)",
+        country="BR",
+        currency="BRL",
+        category="Profissionais de tecnologia — desenvolvimento, infraestrutura e plantão de suporte",
+        cct_official="Convenção Coletiva de Trabalho 2026/2027 — Empregados em Empresas de "
+                     "Processamento de Dados e Tecnologia da Informação de São Paulo",
+        cct_registration="MTE / Sistema Mediador nº SP004230/2026",
+        cct_validity="1 Jan 2026 – 31 Dec 2026 (data-base 1º de janeiro)",
+        union_official="Sindicato dos Trabalhadores em Processamento de Dados e Tecnologia da "
+                       "Informação de São Paulo (SINDPD-SP)",
+        employer_body="Sindicato das Empresas de Informática do Estado de São Paulo (SEPROSP)",
+        profile=Profile(kind="it", scheduled_minutes=480, break_minutes=60, start_minutes=9 * 60 + 30,
+                        start_jitter=90, work_days=(0, 1, 2, 3, 4)),
+        # The plantão rotation is why this population carries the night premium and the hour bank that
+        # a purely administrative one does not: an on-call engineer genuinely works at 02:00.
+        rules=("br-inter-11h", "br-intra-60m", "br-ot-daily-2h", "br-weekly-44h", "br-dsr-24h",
+               "br-tolerance-10m", "br-night-premium", "br-holiday-double", "br-hour-bank"),
+        # 15 minutes a day is what the T&A instance was configured with for the on-call population, and
+        # Art. 58 §1º allows 10 — so the five minutes in between are the finding, on every day they
+        # occur. This is a configuration breach, not a rostering one, and it is the one on this
+        # dashboard that a single change clears.
+        config={"tolerance_minutes": 15.0, "night_premium_pct": 30.0},
+        policy_key=None,
+        holidays=_BR_HOLIDAYS,
+        exclusions=(_BR_OFFICE_EXCLUSIONS[1],),
+    ),
+    Agreement(
+        key="br-engineering",
+        short="Engenheiros e técnicos (SEESP)",
+        country="BR",
+        currency="BRL",
+        category="Engenheiros, tecnólogos e técnicos de laboratório",
+        cct_official="Convenção Coletiva de Trabalho 2026/2027 — Engenheiros, Arquitetos e Técnicos "
+                     "no Estado de São Paulo",
+        cct_registration="MTE / Sistema Mediador nº SP002903/2026",
+        cct_validity="1 Mar 2026 – 28 Feb 2027 (data-base 1º de março)",
+        union_official="Sindicato dos Engenheiros no Estado de São Paulo (SEESP)",
+        employer_body="Federação das Indústrias do Estado de São Paulo (FIESP)",
+        profile=Profile(kind="lab", scheduled_minutes=480, break_minutes=60, start_minutes=8 * 60,
+                        start_jitter=45, work_days=(0, 1, 2, 3, 4)),
+        rules=_BR_OFFICE_RULES,
+        config={"tolerance_minutes": 10.0},
+        policy_key=None,
+        holidays=_BR_HOLIDAYS,
+        exclusions=_BR_OFFICE_EXCLUSIONS,
+    ),
+    Agreement(
+        key="br-commerce",
+        short="Comerciários (SECSP)",
+        country="BR",
+        currency="BRL",
+        category="Comerciários — lojas de rua, shopping centers e retaguarda",
         cct_official="Convenção Coletiva de Trabalho 2026/2027 — Empregados no Comércio Varejista de São Paulo",
         cct_registration="MTE / Sistema Mediador nº SP002145/2026",
         cct_validity="1 Jan 2026 – 31 Dec 2026 (data-base 1º de janeiro)",
         union_official="Sindicato dos Empregados no Comércio de São Paulo (SECSP)",
         employer_body="Federação do Comércio de Bens, Serviços e Turismo do Estado de São Paulo (FecomercioSP)",
-        headcount=312,
-        sites=("Loja Paulista", "Loja Ibirapuera", "Loja Morumbi", "Loja Tatuapé", "CD Barueri"),
-        roles=("Vendedor", "Operador de caixa", "Estoquista", "Supervisor de loja", "Fiscal de prevenção"),
-        profile=Profile(kind="retail", scheduled_minutes=460, break_minutes=60, start_minutes=9 * 60,
+        profile=Profile(kind="commerce", scheduled_minutes=460, break_minutes=60, start_minutes=9 * 60,
                         start_jitter=90, work_days=(0, 1, 2, 3, 4, 5), sunday_share=0.42),
         rules=("br-inter-11h", "br-intra-60m", "br-ot-daily-2h", "br-weekly-44h", "br-dsr-24h",
                "br-sunday-rotation", "br-tolerance-10m", "br-night-premium", "br-holiday-double",
-               "br-hour-bank"),
-        # Everything planted at 0.0 except interjornada — the org has to stay overwhelmingly compliant
-        # (a handful of real people, not hundreds), so this group carries one small, genuine finding
-        # rather than a spread of them.
-        incidence={"br-inter-11h": 0.008, "br-intra-60m": 0.0, "br-ot-daily-2h": 0.0,
-                   "br-weekly-44h": 0.0, "br-dsr-24h": 0.0, "br-sunday-rotation": 0.0,
-                   "br-tolerance-10m": 0.0, "br-night-premium": 0.0, "br-holiday-double": 0.0,
-                   "br-hour-bank": 0.0},
+               "br-hour-bank", "br-minor-night"),
         config={"night_premium_pct": 30.0, "tolerance_minutes": 10.0},
         policy_key="br-retail",
         holidays=_BR_HOLIDAYS,
     ),
-    BusinessGroup(
-        key="br-botic-franchise",
-        name="Boticário franchises — nationwide",
-        country="BR",
-        currency="BRL",
-        category="Comerciários — franquias de cosméticos e perfumaria",
-        cct_official="Convenção Coletiva de Trabalho 2026/2027 — Grupo Boticário e Unidades Franqueadas",
-        cct_registration="MTE / Sistema Mediador nº PR001877/2026",
-        cct_validity="1 Feb 2026 – 31 Jan 2027 (data-base 1º de fevereiro)",
-        union_official="Sindicato dos Empregados no Comércio de Curitiba e Região Metropolitana (SECC)",
-        employer_body="Sindicato do Comércio Varejista de Curitiba (Sindilojas Curitiba)",
-        headcount=148,
-        sites=("Franquia Batel", "Franquia Shopping Curitiba", "Franquia Londrina", "Franquia Joinville"),
-        roles=("Consultora de beleza", "Operador de caixa", "Líder de loja", "Repositor"),
-        profile=Profile(kind="franchise", scheduled_minutes=440, break_minutes=60, start_minutes=10 * 60,
-                        start_jitter=60, work_days=(0, 1, 2, 3, 4, 5), sunday_share=0.28),
-        rules=("br-inter-11h", "br-intra-60m", "br-ot-daily-2h", "br-weekly-44h", "br-dsr-24h",
-               "br-sunday-rotation", "br-tolerance-10m", "br-holiday-double", "br-minor-night"),
-        incidence={"br-inter-11h": 0.0, "br-intra-60m": 0.0, "br-ot-daily-2h": 0.0,
-                   "br-weekly-44h": 0.0, "br-dsr-24h": 0.0, "br-sunday-rotation": 0.0,
-                   "br-tolerance-10m": 0.0, "br-holiday-double": 0.0, "br-minor-night": 0.0},
-        config={"night_premium_pct": 30.0, "tolerance_minutes": 10.0},
-        policy_key="br-botic",
-        holidays=_BR_HOLIDAYS,
-    ),
-    BusinessGroup(
-        key="br-logistics-sp",
-        name="Logistics & transport — SP distribution centres",
+    Agreement(
+        key="br-logistics",
+        short="Transporte rodoviário (SINDMOTORISTAS)",
         country="BR",
         currency="BRL",
         category="Motoristas, ajudantes e operadores logísticos",
@@ -615,43 +692,34 @@ GROUPS: list[BusinessGroup] = [
         cct_validity="1 May 2026 – 30 Apr 2027 (data-base 1º de maio)",
         union_official="Sindicato dos Trabalhadores em Transportes Rodoviários de São Paulo (SINDMOTORISTAS)",
         employer_body="Sindicato das Empresas de Transportes de Carga de São Paulo e Região (SETCESP)",
-        headcount=206,
-        sites=("CD Guarulhos", "CD Jundiaí", "CD Ribeirão Preto", "Pátio Cubatão"),
-        roles=("Motorista carreteiro", "Motorista de entrega", "Ajudante de carga", "Conferente", "Operador de empilhadeira"),
         profile=Profile(kind="logistics", scheduled_minutes=440, break_minutes=60, start_minutes=5 * 60,
                         start_jitter=200, work_days=(0, 1, 2, 3, 4, 5), sunday_share=0.18),
         rules=("br-inter-11h", "br-intra-60m", "br-ot-daily-2h", "br-weekly-44h", "br-dsr-24h",
                "br-tolerance-10m", "br-night-premium", "br-holiday-double", "br-hour-bank",
                "br-driver-break"),
-        incidence={"br-inter-11h": 0.0, "br-intra-60m": 0.0, "br-ot-daily-2h": 0.0,
-                   "br-weekly-44h": 0.0, "br-dsr-24h": 0.0, "br-tolerance-10m": 0.0,
-                   "br-night-premium": 0.0, "br-holiday-double": 0.0, "br-hour-bank": 0.0,
-                   "br-driver-break": 0.012},
-        config={"night_premium_pct": 30.0, "tolerance_minutes": 10.0},
+        # The night premium is configured at the statutory 20% while Cláusula 18ª commits to 30%. Half
+        # the fleet clocks in before 05:00, so this single configured number shorts every one of those
+        # night hours — no pattern has to be planted for the finding to be real.
+        config={"night_premium_pct": 20.0, "tolerance_minutes": 10.0},
         policy_key="br-log",
         holidays=_BR_HOLIDAYS,
     ),
-    BusinessGroup(
-        key="br-healthcare-12x36",
-        name="Healthcare — hospital 12×36 roster",
+    Agreement(
+        key="br-healthcare",
+        short="Saúde 12×36 (SindSaúde-SP)",
         country="BR",
         currency="BRL",
-        category="Enfermagem, técnicos e auxiliares — escala 12x36",
-        cct_official="Convenção Coletiva de Trabalho 2026/2027 — Empregados em Estabelecimentos de Serviços de Saúde do Estado de São Paulo",
+        category="Enfermagem, técnicos e auxiliares — escala 12×36",
+        cct_official="Convenção Coletiva de Trabalho 2026/2027 — Empregados em Estabelecimentos de "
+                     "Serviços de Saúde do Estado de São Paulo",
         cct_registration="MTE / Sistema Mediador nº SP002684/2026",
         cct_validity="1 Mar 2026 – 28 Feb 2027 (data-base 1º de março)",
         union_official="Sindicato dos Trabalhadores em Estabelecimentos de Serviços de Saúde de São Paulo (SindSaúde-SP)",
         employer_body="Sindicato dos Hospitais, Clínicas e Laboratórios do Estado de São Paulo (SindHosp)",
-        headcount=128,
-        sites=("Hospital Vila Mariana", "Hospital Santo Amaro", "Pronto-atendimento Lapa"),
-        roles=("Técnico de enfermagem", "Enfermeiro", "Auxiliar de enfermagem", "Maqueiro"),
         profile=Profile(kind="scale_12x36", scheduled_minutes=650, break_minutes=60, start_minutes=7 * 60,
                         start_jitter=0, work_days=(0, 1, 2, 3, 4, 5, 6), sunday_share=1.0),
         rules=("br-12x36-rest", "br-inter-11h", "br-intra-60m", "br-dsr-24h",
                "br-tolerance-10m", "br-night-premium", "br-holiday-double"),
-        incidence={"br-12x36-rest": 0.015, "br-inter-11h": 0.0, "br-intra-60m": 0.0,
-                   "br-dsr-24h": 0.0, "br-tolerance-10m": 0.0,
-                   "br-night-premium": 0.0, "br-holiday-double": 0.0},
         config={"night_premium_pct": 30.0, "tolerance_minutes": 10.0},
         policy_key=None,
         holidays=_BR_HOLIDAYS,
@@ -664,39 +732,61 @@ GROUPS: list[BusinessGroup] = [
              "overtime while the scale holds."),
         ),
     ),
-    BusinessGroup(
+    Agreement(
         key="br-banking",
-        name="Banking — branch network",
+        short="Bancários (FENABAN)",
         country="BR",
         currency="BRL",
-        category="Bancários — rede de agências (6h, art. 224)",
+        category="Bancários — crédito ao consumidor e serviços financeiros (6h, art. 224)",
         cct_official="Convenção Coletiva de Trabalho 2026/2027 — FENABAN (Federação Nacional dos Bancos)",
         cct_registration="MTE / Sistema Mediador nº MR045821/2026",
         cct_validity="1 Sep 2026 – 31 Aug 2027 (data-base 1º de setembro)",
         union_official="Confederação Nacional dos Trabalhadores do Ramo Financeiro (CONTRAF-CUT)",
         employer_body="Federação Nacional dos Bancos (FENABAN)",
-        headcount=174,
-        sites=("Agência Av. Paulista", "Agência Faria Lima", "Agência Centro RJ", "Agência Savassi BH"),
-        roles=("Caixa", "Escriturário", "Gerente de relacionamento", "Assistente de retaguarda"),
         profile=Profile(kind="banking", scheduled_minutes=360, break_minutes=15, start_minutes=10 * 60,
-                        start_jitter=30, work_days=(0, 1, 2, 3, 4), sunday_share=0.0),
+                        start_jitter=30, work_days=(0, 1, 2, 3, 4)),
         rules=("br-banking-6h", "br-inter-11h", "br-ot-daily-2h", "br-weekly-44h", "br-dsr-24h",
                "br-tolerance-10m", "br-holiday-double", "br-hour-bank"),
-        incidence={"br-banking-6h": 0.0, "br-inter-11h": 0.0, "br-ot-daily-2h": 0.0,
-                   "br-weekly-44h": 0.0, "br-dsr-24h": 0.0, "br-tolerance-10m": 0.0,
-                   "br-holiday-double": 0.0, "br-hour-bank": 0.0},
-        config={"night_premium_pct": 30.0, "tolerance_minutes": 10.0},
+        config={"tolerance_minutes": 10.0},
         policy_key=None,
         holidays=_BR_HOLIDAYS,
         exclusions=(
             ("Night premium (CLT Art. 73)",
-             "The branch network closes at 18:00 and no roster in the period reaches 22:00, so there is no "
-             "night work to price. Kept out of the score rather than reported as a pass."),
+             "The consumer-credit desks close at 18:00 and no roster in the period reaches 22:00, so there "
+             "is no night work to price. Kept out of the score rather than reported as a pass."),
         ),
     ),
-    BusinessGroup(
-        key="mx-retail-cdmx",
-        name="Retail — CDMX & Estado de México stores",
+    # -- Mexico ---------------------------------------------------------------
+    Agreement(
+        key="mx-office",
+        short="Oficina y confianza (CROC)",
+        country="MX",
+        currency="MXN",
+        category="Empleados administrativos y profesionales — oficinas corporativas",
+        cct_official="Contrato Colectivo de Trabajo 2026 — Empleados de oficina y de confianza, "
+                     "Ciudad de México y Nuevo León",
+        cct_registration="CFCRL nº 09/2026/CCT/0658",
+        cct_validity="1 Feb 2026 – 31 Jan 2027 (revisión salarial anual)",
+        union_official="Confederación Revolucionaria de Obreros y Campesinos (CROC) — Sección Empleados de Oficina",
+        employer_body="Cámara Nacional de Comercio, Servicios y Turismo de la Ciudad de México (CANACO CDMX)",
+        profile=Profile(kind="mx_office", scheduled_minutes=480, break_minutes=30, start_minutes=9 * 60,
+                        start_jitter=60, work_days=(0, 1, 2, 3, 4)),
+        rules=("mx-weekly-48h", "mx-ot-daily-3h", "mx-ot-weekly-9h", "mx-rest-day-7", "mx-meal-30m",
+               "mx-sunday-prima", "mx-holiday-double"),
+        config={"sunday_premium_pct": 25.0},
+        policy_key=None,
+        holidays=(),
+        exclusions=(
+            ("Jornada nocturna capped at 7 hours (LFT Art. 60 y 61)",
+             "The corporate offices run a single diurnal shift; no roster in the period falls inside "
+             "20:00–06:00, so there is no jornada nocturna to measure against the cap."),
+            ("Jornada mixta capped at 7h30 (LFT Art. 60 y 61)",
+             "Same reason: a shift has to straddle 20:00 to be mixta, and none does."),
+        ),
+    ),
+    Agreement(
+        key="mx-retail",
+        short="Comercio al por menor (CROC)",
         country="MX",
         currency="MXN",
         category="Empleados de tienda, caja y almacén",
@@ -705,48 +795,378 @@ GROUPS: list[BusinessGroup] = [
         cct_validity="1 Feb 2026 – 31 Jan 2027 (revisión salarial anual)",
         union_official="Confederación Revolucionaria de Obreros y Campesinos (CROC) — Sección Comercio CDMX",
         employer_body="Cámara de Comercio, Servicios y Turismo de la Ciudad de México (CANACO CDMX)",
-        headcount=186,
-        sites=("Tienda Polanco", "Tienda Coyoacán", "Tienda Satélite", "Tienda Toluca", "CEDIS Cuautitlán"),
-        roles=("Vendedor de piso", "Cajero", "Almacenista", "Jefe de tienda", "Auxiliar de inventarios"),
         profile=Profile(kind="mx_retail", scheduled_minutes=480, break_minutes=30, start_minutes=10 * 60,
                         start_jitter=90, work_days=(0, 1, 2, 3, 4, 5), sunday_share=0.46),
         rules=("mx-weekly-48h", "mx-ot-daily-3h", "mx-ot-weekly-9h", "mx-rest-day-7", "mx-meal-30m",
                "mx-sunday-prima", "mx-holiday-double"),
-        incidence={"mx-weekly-48h": 0.0, "mx-ot-daily-3h": 0.0, "mx-ot-weekly-9h": 0.0,
-                   "mx-rest-day-7": 0.0, "mx-meal-30m": 0.0, "mx-sunday-prima": 0.0,
-                   "mx-holiday-double": 0.0},
         config={"sunday_premium_pct": 25.0},
         policy_key="mx-retail",
         holidays=(),
     ),
-    BusinessGroup(
-        key="mx-plant-nl",
-        name="Manufacturing — Nuevo León plants",
+    Agreement(
+        key="mx-plant",
+        short="Manufactura NL (CTM)",
         country="MX",
         currency="MXN",
-        category="Operarios de producción — turnos rotativos (diurno / nocturno / mixto)",
+        category="Operarios y técnicos — turnos rotativos (diurno / nocturno / mixto)",
         cct_official="Contrato Colectivo de Trabajo 2026 — Industria manufacturera del Estado de Nuevo León",
         cct_registration="CFCRL nº 19/2026/CCT/0873",
         cct_validity="1 Apr 2026 – 31 Mar 2028 (bienal, con revisión salarial anual)",
         union_official="Confederación de Trabajadores de México (CTM) — Federación de Trabajadores de Nuevo León",
         employer_body="Cámara de la Industria de Transformación de Nuevo León (CAINTRA)",
-        headcount=240,
-        sites=("Planta Apodaca", "Planta Santa Catarina", "Planta García", "Planta Escobedo"),
-        roles=("Operario de línea", "Técnico de mantenimiento", "Supervisor de turno", "Montacarguista", "Inspector de calidad"),
         profile=Profile(kind="mx_plant", scheduled_minutes=480, break_minutes=30, start_minutes=6 * 60,
                         start_jitter=0, work_days=(0, 1, 2, 3, 4, 5), sunday_share=0.22),
         rules=("mx-weekly-48h", "mx-ot-daily-3h", "mx-ot-weekly-9h", "mx-rest-day-7", "mx-meal-30m",
                "mx-night-7h", "mx-mixed-7h30", "mx-sunday-prima", "mx-holiday-double"),
-        incidence={"mx-weekly-48h": 0.0, "mx-ot-daily-3h": 0.0, "mx-ot-weekly-9h": 0.0,
-                   "mx-rest-day-7": 0.006, "mx-meal-30m": 0.0, "mx-night-7h": 0.0,
-                   "mx-mixed-7h30": 0.0, "mx-sunday-prima": 0.0, "mx-holiday-double": 0.0},
         config={"sunday_premium_pct": 25.0},
         policy_key=None,
         holidays=(),
     ),
+)}
+
+
+# --- the departments ---------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Segment:
+    """One slice of a department's headcount, under one agreement.
+
+    `sites` and `roles` live here rather than on the agreement because they are what makes a
+    violation row readable: "Analista de RH · Sede Faria Lima" and "Motorista carreteiro · CD
+    Guarulhos" can sit in the same department and must not be described by the same list.
+    """
+
+    agreement: str            # Agreement.key
+    label: str                # what this slice is, in the department's own words
+    headcount: int
+    sites: tuple[str, ...]
+    roles: tuple[str, ...]
+    incidence: dict[str, float] = field(default_factory=dict)   # demo scaffolding — see the docstring
+
+
+@dataclass(frozen=True)
+class Department:
+    """What a customer picks off the org chart. One jurisdiction, one or more agreements."""
+
+    key: str
+    arm: str                  # Arm.key
+    name: str
+    country: str              # BR | MX — must match every segment's agreement
+    mandate: str              # one line: what this department is for
+    segments: tuple[Segment, ...]
+
+    @property
+    def headcount(self) -> int:
+        return sum(s.headcount for s in self.segments)
+
+
+@dataclass(frozen=True)
+class Arm:
+    """An organizational arm — the top level of the chart."""
+
+    key: str
+    name: str
+    blurb: str
+
+
+ARMS: list[Arm] = [
+    Arm(key="finance-governance", name="Finance & governance",
+        blurb="The books, the forecast, the audit trail and the market story."),
+    Arm(key="legal-risk", name="Legal & risk",
+        blurb="Counsel, the ethics line, and the register of what could go wrong."),
+    Arm(key="people-strategy", name="People & strategy",
+        blurb="Who the company hires, where it is going, and what it owes the outside."),
+    Arm(key="commercial-operations", name="Commercial & operations",
+        blurb="Everything that moves product: demand, supply, the labs and the systems."),
 ]
 
-GROUPS_BY_KEY: dict[str, BusinessGroup] = {g.key: g for g in GROUPS}
+
+# Site lists, named once each — a department's staff are not spread across every building the company
+# owns, and reusing one list per kind of workplace keeps the violation rows plausible.
+_HQ = ("Sede Faria Lima (SP)", "Escritório Alphaville", "CSC Barueri")
+_HQ_WIDE = ("Sede Faria Lima (SP)", "Escritório Alphaville", "Escritório Rio de Janeiro",
+            "Escritório Belo Horizonte", "CSC Barueri")
+_STORES = ("Loja Paulista", "Loja Ibirapuera", "Loja Morumbi", "Loja Tatuapé", "Loja Campinas",
+           "Loja Santos")
+_CDS = ("CD Guarulhos", "CD Jundiaí", "CD Ribeirão Preto", "CD Contagem", "Pátio Cubatão")
+_TECH = ("Sede Faria Lima (SP)", "Hub Tecnológico Campinas", "Escritório Recife")
+_LABS = ("Laboratório Campinas", "Centro Técnico Jundiaí")
+_CLINICS = ("Ambulatório Sede", "Ambulatório CD Guarulhos", "Ambulatório Loja Paulista")
+_MX_OFFICES = ("Corporativo Polanco", "Oficina Santa Fe", "Oficina Monterrey")
+_MX_PLANTS = ("Planta Apodaca", "Planta Santa Catarina", "Planta García", "Planta Escobedo")
+
+
+DEPARTMENTS: list[Department] = [
+    # ---------------------------------------------------------------- Finance & governance
+    Department(
+        key="fin-controller",
+        arm="finance-governance",
+        name="Finance / controller",
+        country="BR",
+        mandate="Closes the books, owns the ledger, and answers for what the numbers say.",
+        segments=(
+            Segment(agreement="br-accounting", label="Contabilidade e fiscal", headcount=2300,
+                    sites=_HQ, roles=("Analista contábil", "Contador sênior", "Coordenador fiscal",
+                                      "Controller", "Analista de tributos")),
+            Segment(agreement="br-admin", label="Contas a pagar e a receber", headcount=1500,
+                    sites=_HQ, roles=("Analista de contas a pagar", "Analista de crédito e cobrança",
+                                      "Assistente administrativo", "Coordenador de tesouraria")),
+            Segment(agreement="br-banking", label="Crédito ao consumidor — mesa de atendimento",
+                    headcount=400, sites=("Sede Faria Lima (SP)", "Escritório Rio de Janeiro"),
+                    roles=("Analista de crédito", "Operador de mesa", "Gerente de carteira",
+                           "Assistente de retaguarda")),
+        ),
+    ),
+    Department(
+        key="fin-fpa",
+        arm="finance-governance",
+        name="Financial planning & analysis",
+        country="BR",
+        mandate="Turns the close into a forecast, and the forecast into a budget anyone can defend.",
+        segments=(
+            Segment(agreement="br-admin", label="Planejamento e orçamento", headcount=1800,
+                    sites=_HQ_WIDE, roles=("Analista de planejamento", "Analista de FP&A",
+                                           "Business partner financeiro", "Coordenador de orçamento")),
+            Segment(agreement="br-accounting", label="Controladoria de negócios", headcount=800,
+                    sites=_HQ, roles=("Analista de controladoria", "Contador de custos",
+                                      "Especialista em margem")),
+        ),
+    ),
+    Department(
+        key="fin-audit",
+        arm="finance-governance",
+        name="Internal audit",
+        country="MX",
+        mandate="Tests the controls the rest of the company says it has, including on the plant floor.",
+        segments=(
+            Segment(agreement="mx-office", label="Auditoría corporativa", headcount=1300,
+                    sites=_MX_OFFICES, roles=("Auditor interno", "Auditor senior",
+                                              "Especialista en controles", "Gerente de auditoría")),
+            # Auditors embedded on the rotating plant turns — they are audited by the same clock as
+            # the line they observe, and they inherit its rest-day exposure.
+            Segment(agreement="mx-plant", label="Auditoría de planta — turnos rotativos", headcount=600,
+                    sites=_MX_PLANTS, roles=("Auditor de planta", "Inspector de procesos",
+                                             "Supervisor de cumplimiento"),
+                    incidence={"mx-rest-day-7": 0.006}),
+        ),
+    ),
+    Department(
+        key="fin-ir",
+        arm="finance-governance",
+        name="Investor relations",
+        country="BR",
+        mandate="One version of the company's story, told to the market on the market's calendar.",
+        segments=(
+            Segment(agreement="br-admin", label="Relações com investidores", headcount=1300,
+                    sites=("Sede Faria Lima (SP)", "Escritório Rio de Janeiro"),
+                    roles=("Analista de RI", "Especialista em mercado de capitais",
+                           "Coordenador de RI", "Assistente de RI")),
+        ),
+    ),
+    # ---------------------------------------------------------------- Legal & risk
+    Department(
+        key="legal-counsel",
+        arm="legal-risk",
+        name="General counsel / law",
+        country="BR",
+        mandate="Every contract, every claim, every regulator letter — and the labour docket itself.",
+        segments=(
+            Segment(agreement="br-admin", label="Jurídico corporativo e trabalhista", headcount=2400,
+                    sites=_HQ_WIDE, roles=("Advogado trabalhista", "Advogado societário",
+                                           "Paralegal", "Analista jurídico", "Coordenador jurídico")),
+        ),
+    ),
+    Department(
+        key="legal-compliance",
+        arm="legal-risk",
+        name="Compliance & ethics",
+        country="BR",
+        mandate="The ethics line, the third-party checks, and loss prevention where the stock is.",
+        segments=(
+            Segment(agreement="br-admin", label="Compliance corporativo", headcount=1200,
+                    sites=_HQ, roles=("Analista de compliance", "Especialista em integridade",
+                                      "Investigador interno", "Coordenador de ética")),
+            # Loss prevention reports into compliance but is rostered on store hours, Sundays
+            # included — which is why a compliance department can breach a retail rotation clause.
+            Segment(agreement="br-commerce", label="Prevenção de perdas — rede de lojas", headcount=600,
+                    sites=_STORES, roles=("Fiscal de prevenção", "Inspetor de loja",
+                                          "Coordenador de prevenção"),
+                    incidence={"br-sunday-rotation": 0.006}),
+        ),
+    ),
+    Department(
+        key="legal-risk",
+        arm="legal-risk",
+        name="Risk management office",
+        country="MX",
+        mandate="Keeps the risk register honest and prices what the company is exposed to.",
+        segments=(
+            Segment(agreement="mx-office", label="Gestión de riesgos", headcount=1500,
+                    sites=_MX_OFFICES, roles=("Analista de riesgos", "Especialista en seguros",
+                                              "Modelador cuantitativo", "Gerente de riesgo operativo")),
+        ),
+    ),
+    # ---------------------------------------------------------------- People & strategy
+    Department(
+        key="people-hr",
+        arm="people-strategy",
+        name="Human resources",
+        country="BR",
+        mandate="Hiring, payroll, relations with every union in this catalog — and occupational health.",
+        segments=(
+            Segment(agreement="br-admin", label="RH corporativo e folha de pagamento", headcount=2600,
+                    sites=_HQ_WIDE, roles=("Analista de RH", "Analista de folha de pagamento",
+                                           "Business partner de RH", "Especialista em relações sindicais",
+                                           "Recrutador")),
+            Segment(agreement="br-commerce", label="RH de campo — rede de lojas", headcount=900,
+                    sites=_STORES, roles=("Business partner de loja", "Analista de RH de campo",
+                                          "Instrutor de treinamento")),
+            # SESMT — the occupational-health team CLT Art. 162 requires, on the hospital 12×36 scale
+            # because the clinics run around the clock. The department that owns compliance for
+            # everyone else is subject to Art. 59-A itself here.
+            Segment(agreement="br-healthcare", label="SESMT — saúde ocupacional (escala 12×36)",
+                    headcount=400, sites=_CLINICS,
+                    roles=("Enfermeiro do trabalho", "Técnico de enfermagem", "Auxiliar de enfermagem",
+                           "Técnico de segurança"),
+                    incidence={"br-12x36-rest": 0.012}),
+        ),
+    ),
+    Department(
+        key="people-strategy",
+        arm="people-strategy",
+        name="Strategy & transformation",
+        country="BR",
+        mandate="Picks the bets, then runs the programmes that land them.",
+        segments=(
+            Segment(agreement="br-admin", label="Estratégia e PMO", headcount=1600,
+                    sites=_HQ, roles=("Consultor interno", "Gerente de projetos", "Analista de estratégia",
+                                      "Especialista em processos")),
+            Segment(agreement="br-it", label="Transformação digital", headcount=700,
+                    sites=_TECH, roles=("Product owner", "Analista de negócios",
+                                        "Arquiteto de soluções", "Scrum master")),
+        ),
+    ),
+    Department(
+        key="people-sustainability",
+        arm="people-strategy",
+        name="Sustainability",
+        country="BR",
+        mandate="Measures what the company emits and consumes, and reports it where it counts.",
+        segments=(
+            Segment(agreement="br-admin", label="ESG e relatórios", headcount=1000,
+                    sites=_HQ, roles=("Analista de ESG", "Especialista em relatórios de sustentabilidade",
+                                      "Coordenador de projetos socioambientais")),
+            Segment(agreement="br-engineering", label="Engenharia ambiental", headcount=400,
+                    sites=_LABS, roles=("Engenheiro ambiental", "Técnico de meio ambiente",
+                                        "Analista de eficiência energética")),
+        ),
+    ),
+    Department(
+        key="people-corpaffairs",
+        arm="people-strategy",
+        name="Corporate affairs",
+        country="MX",
+        mandate="Government, press and community — the company's face outside its own walls.",
+        segments=(
+            Segment(agreement="mx-office", label="Asuntos corporativos y comunicación", headcount=1700,
+                    sites=_MX_OFFICES, roles=("Analista de asuntos públicos", "Especialista en comunicación",
+                                              "Coordinador de relaciones institucionales",
+                                              "Gestor de comunidad")),
+        ),
+    ),
+    # ---------------------------------------------------------------- Commercial & operations
+    Department(
+        key="com-marketing",
+        arm="commercial-operations",
+        name="Marketing",
+        country="BR",
+        mandate="Brand, media and the trade calendar that lands it in the stores.",
+        segments=(
+            Segment(agreement="br-admin", label="Marketing corporativo e mídia", headcount=2100,
+                    sites=_HQ_WIDE, roles=("Analista de marketing", "Especialista em mídia",
+                                           "Gerente de marca", "Analista de CRM")),
+            Segment(agreement="br-commerce", label="Trade marketing — campo", headcount=1500,
+                    sites=_STORES, roles=("Promotor de vendas", "Analista de trade marketing",
+                                          "Repositor de campanha")),
+        ),
+    ),
+    Department(
+        key="com-sales",
+        arm="commercial-operations",
+        name="Commercial (sales)",
+        country="BR",
+        mandate="The floor, the till and the pipeline — where the revenue is actually taken.",
+        segments=(
+            Segment(agreement="br-commerce", label="Rede de lojas — vendas e caixa", headcount=7100,
+                    sites=_STORES, roles=("Vendedor", "Operador de caixa", "Estoquista de loja",
+                                          "Supervisor de loja", "Gerente de loja"),
+                    incidence={"br-sunday-rotation": 0.005, "br-inter-11h": 0.004}),
+            Segment(agreement="br-admin", label="Vendas internas e sales ops", headcount=1700,
+                    sites=_HQ, roles=("Executivo de contas", "Analista de sales ops",
+                                      "Analista comercial", "Coordenador de vendas")),
+        ),
+    ),
+    Department(
+        key="com-operations",
+        arm="commercial-operations",
+        name="Global operations",
+        country="BR",
+        mandate="Moves the goods: the fleet, the distribution centres and the plan behind them.",
+        segments=(
+            Segment(agreement="br-logistics", label="Frota e transporte", headcount=6800,
+                    sites=_CDS, roles=("Motorista carreteiro", "Motorista de entrega",
+                                       "Ajudante de carga", "Conferente", "Operador de empilhadeira"),
+                    incidence={"br-driver-break": 0.010, "br-inter-11h": 0.005}),
+            Segment(agreement="br-commerce", label="Armazenagem e retaguarda", headcount=4300,
+                    sites=_CDS, roles=("Operador de CD", "Separador", "Conferente de recebimento",
+                                       "Supervisor de armazém"),
+                    incidence={"br-dsr-24h": 0.003}),
+            Segment(agreement="br-admin", label="Planejamento de operações", headcount=1300,
+                    sites=_HQ, roles=("Analista de planejamento logístico", "Analista de S&OP",
+                                      "Coordenador de transporte")),
+        ),
+    ),
+    Department(
+        key="com-rnd",
+        arm="commercial-operations",
+        name="Research & development",
+        country="MX",
+        mandate="Formulates, prototypes and proves it on a pilot line that runs three turns.",
+        segments=(
+            Segment(agreement="mx-plant", label="Línea piloto — turnos rotativos", headcount=2900,
+                    sites=_MX_PLANTS, roles=("Operario de línea piloto", "Técnico de proceso",
+                                             "Supervisor de turno", "Inspector de calidad"),
+                    incidence={"mx-rest-day-7": 0.005, "mx-ot-weekly-9h": 0.003}),
+            Segment(agreement="mx-office", label="Investigación y laboratorio", headcount=2200,
+                    sites=_MX_OFFICES, roles=("Investigador", "Químico de formulación",
+                                              "Analista de laboratorio", "Gerente de proyecto técnico")),
+        ),
+    ),
+    Department(
+        key="com-it",
+        arm="commercial-operations",
+        name="Information technology",
+        country="BR",
+        mandate="Builds and runs the systems, including the on-call rotation that keeps them up.",
+        segments=(
+            Segment(agreement="br-it", label="Engenharia, infraestrutura e plantão", headcount=4600,
+                    sites=_TECH, roles=("Engenheiro de software", "Analista de infraestrutura",
+                                        "SRE de plantão", "Analista de suporte N2", "Tech lead"),
+                    # The plantão rotation is what breaks the interjornada: an 02:00 call-out lands
+                    # inside the 11 hours that were supposed to separate two working days.
+                    incidence={"br-inter-11h": 0.007, "br-tolerance-10m": 0.020}),
+            Segment(agreement="br-admin", label="Governança de TI e dados", headcount=1700,
+                    sites=_TECH, roles=("Analista de governança de TI", "Analista de dados",
+                                        "Especialista em segurança da informação", "Gestor de contratos de TI")),
+        ),
+    ),
+]
+
+DEPARTMENTS_BY_KEY: dict[str, Department] = {d.key: d for d in DEPARTMENTS}
+ARMS_BY_KEY: dict[str, Arm] = {a.key: a for a in ARMS}
+
+ORGANIZATION = "Oitchau Group"
 
 COUNTRY_META = {
     "BR": {"name": "Brazil", "flag": "\U0001F1E7\U0001F1F7", "law": "CLT + CCT/ACT",

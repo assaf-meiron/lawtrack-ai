@@ -136,9 +136,10 @@ export const agentStatus = () => req("/api/agent/status");
 export const runAgentScan = () => req("/api/agent/scan", { method: "POST" });
 
 // --- payroll validation (punches vs the CCT / statute) ---
-// groups: the business role groups, by country. run: the whole validation for one group.
-export const validationGroups = () => req("/api/validation/groups");
-export const runValidation = (groupKey) => req(`/api/validation/groups/${groupKey}`);
+// departments: the org chart, by arm — deliberately carries no score or breach count, because
+// nothing has been analysed until someone picks a department. runValidation is what produces those.
+export const validationDepartments = () => req("/api/validation/departments");
+export const runValidation = (deptKey) => req(`/api/validation/departments/${deptKey}`);
 
 // --- verified output ---
 export const listRules = () => req("/api/rules");
