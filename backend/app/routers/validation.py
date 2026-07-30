@@ -16,16 +16,20 @@ from ..security import get_current_user
 router = APIRouter(prefix="/api/validation", tags=["validation"])
 
 
-@router.get("/groups")
-def groups(_: User = Depends(get_current_user)):
-    """The business role groups a customer can validate, by country."""
+@router.get("/departments")
+def departments(_: User = Depends(get_current_user)):
+    """The org chart: four arms, their departments, and the agreements each department is made of.
+
+    Carries no score and no breach count — see `validation.catalog`. Nothing has been analysed when
+    this is served, and the chart must not imply otherwise.
+    """
     return validation.catalog()
 
 
-@router.get("/groups/{group_key}")
-def run(group_key: str, _: User = Depends(get_current_user)):
-    """Validate one group's punches for the period: score, totals, and every rule with its breaches."""
+@router.get("/departments/{dept_key}")
+def run(dept_key: str, _: User = Depends(get_current_user)):
+    """Validate one department's punches for the period: score, totals, and every rule with its breaches."""
     try:
-        return validation.validate(group_key)
+        return validation.validate(dept_key)
     except KeyError:
-        raise HTTPException(404, f"unknown business role group: {group_key}") from None
+        raise HTTPException(404, f"unknown department: {dept_key}") from None

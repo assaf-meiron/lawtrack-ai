@@ -72,6 +72,20 @@ body {
   animation: lt-tour-ring 1.9s ease-out infinite;
 }
 
+/* ---- "pick a department" (ValidationOverview.jsx) ----
+   The org chart opens with nothing validated and no compliance claim anywhere on it, so the one
+   thing the screen has to communicate is that the next move is the user's. The arrow bobs from the
+   instruction toward the chart below it; it stops mattering the moment something has been run, so
+   the class is only applied while the count of finished runs is zero. */
+@keyframes lt-nudge {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(4px); }
+}
+
+.lt-nudge {
+  animation: lt-nudge 1.6s ease-in-out infinite;
+}
+
 .lt-tour-card {
   animation: lt-tour-in 0.28s cubic-bezier(0.22, 1, 0.36, 1) 1 both;
 }

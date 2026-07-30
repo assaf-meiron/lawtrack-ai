@@ -1,24 +1,9 @@
 import React from "react";
-import { AlertOctagon, AlertTriangle, AlertCircle, CheckCircle2 } from "lucide-react";
+import { AlertOctagon, AlertTriangle, AlertCircle, CheckCircle2, HelpCircle } from "lucide-react";
 import { T } from "./shared.jsx";
 
 /* Shared between the org-chart overview and the per-department dashboard, so a "Critical" chip and a
    62 score mean the same thing, in the same color, wherever either screen puts them on the page. */
-
-/* The org chart's node names. `group.name` is the legal business-role-group name ("Retail — São Paulo
-   store network") — accurate, but a mouthful for a chart meant to read at a glance. This is the short
-   name HR would actually give the box on an org chart; the full legal name still leads the dashboard
-   once someone opens it. */
-const DEPARTMENT_NAME = {
-  "br-retail-sp": "Retail",
-  "br-botic-franchise": "Franchise Retail",
-  "br-logistics-sp": "Logistics",
-  "br-healthcare-12x36": "Healthcare",
-  "br-banking": "Banking",
-  "mx-retail-cdmx": "Retail",
-  "mx-plant-nl": "Manufacturing",
-};
-export const departmentName = (group) => DEPARTMENT_NAME[group.key] || group.name;
 
 /* Severity is a *status* scale, not a series palette: four fixed steps, each shipped with an icon and
    a word so identity never rests on hue alone. The steps are checked for separation under deuteranopia
@@ -37,6 +22,12 @@ export const sevMeta = (rule) => (rule.status === "clear" ? CLEAR : SEV[rule.sev
    restate the bug this file exists to prevent. */
 const NEUTRAL = { label: "—", Icon: AlertCircle, ink: T.muted, soft: "#f4f6f9", line: T.line, track: T.line };
 
+/* A department nobody has validated yet. This is a *tone*, not a verdict, and it exists because the
+   org chart's whole job before a run is to say "we have not looked". Grey, question mark, no meter —
+   anything with a hue on it would be a compliance claim the product has not earned. */
+export const UNKNOWN = { label: "Not validated", Icon: HelpCircle, ink: T.muted, soft: "#f4f6f9",
+                        line: T.line2, track: T.line };
+
 /* A department's status, and it is read off the *findings* — never off the score.
 
    Deriving it from the score was a lie the arithmetic told: a rule breached for two drivers out of 206
@@ -46,18 +37,21 @@ const NEUTRAL = { label: "—", Icon: AlertCircle, ink: T.muted, soft: "#f4f6f9"
 
    Escalation to Critical is about *materiality*, not the mere presence of a severe rule: one critical
    rule catching a single employee is a finding to fix, not a red department. It goes red when a critical
-   rule reaches a tenth of the group, or when breaches pile up across five or more rules at once. */
+   rule reaches a tenth of the *department* — `org_share`, the same denominator the score spends, not
+   the share of the one population the rule happens to bind — or when breaches pile up across five or
+   more rules at once. */
 export function runStatus(run) {
   const breached = run.totals.rules_breached;
   if (breached === 0) return { label: "Clear", tone: CLEAR };
   const material = run.rules.some(
-    (r) => r.status === "breach" && r.severity === "critical" && r.affected_share >= 0.1);
+    (r) => r.status === "breach" && r.severity === "critical" && r.org_share >= 0.1);
   if (material || breached >= 5) return { label: "Critical", tone: SEV.critical };
   return { label: "Needs attention", tone: SEV.high };
 }
 
-/* The same call for the organization-wide rollup: the worst status any one department is in. An org is
-   only "Clear" when every department under it is. */
+/* The same call across several departments: the worst status any one of them is in. Only ever handed
+   the departments that have *actually been validated* — a rollup over a partially-analysed org is a
+   statement about what was checked, and the caller has to label it that way. */
 export function orgStatus(runs) {
   const statuses = runs.map(runStatus);
   if (statuses.some((s) => s.label === "Critical")) return { label: "Critical", tone: SEV.critical };

@@ -6,25 +6,34 @@ the agreement they were collected under.
 
 **Three parts, and the separation between them is the whole point.**
 
-1. `roster(group)` builds the population — employees with their contract facts (age, trust position,
-   opening hour-bank balance) and one `Day` per calendar day of the period, each carrying the punch
-   pairs as recorded.
-2. The detectors (`_CHECKS`) read *only* a `Day` stream plus the employee's contract facts and the
-   rule's numeric limit. They cannot see which patterns were planted or what incidence was expected,
-   and they re-derive every interval, break, weekly total and rest gap from the punches.
-3. `validate(group_key)` runs every rule the group is subject to and scores the result.
+1. `roster(dept, segment, agreement)` builds one slice of the population — employees with their
+   contract facts (age, trust position, opening hour-bank balance) and one `Day` per calendar day of
+   the period, each carrying the punch pairs as recorded.
+2. The detectors (`_CHECKS`) read *only* a `Day` stream plus the employee's contract facts, the
+   agreement's configured values and the rule's numeric limit. They cannot see which patterns were
+   planted or what incidence was expected, and they re-derive every interval, break, weekly total and
+   rest gap from the punches.
+3. `validate(dept_key)` runs every rule every one of the department's agreements is subject to, over
+   the slice of the population that agreement covers, then merges the findings and scores the result.
 
 Because (2) cannot see (1)'s intent, the dashboard's numbers are computed rather than declared: a
 planted late punch-out that happens to *also* push a week past its ceiling is reported under both
 rules, exactly as it would be in a real audit. That overlap is a feature — it is what happens when one
 rostering decision breaches three clauses at once.
 
+**A department is not an agreement.** Global operations is drivers under the transport CCT, warehouse
+staff under the commerce CCT and planners under the administrative CCT. So a rule row carries *two*
+denominators and both are on screen: how much of the population the rule actually binds is in breach
+(the meter), and how much of the whole department that is (what the score spends). Scoring off the
+first would let a 400-person clinical team drag a 3,900-person department to a failing grade;
+reporting only the second would bury a rule broken for one in eight of the people it covers.
+
 **One rule about clock noise, and it is statutory.** Every base roster is generated *under* its weekly
 ceiling rather than exactly on it, and `_countable()` strips the Art. 58 §1º tolerance before any
 hour-based test. So a couple of minutes of punch drift can never by itself produce a finding — which
 means every violation on the dashboard is a rostering fact, not a rounding artefact. The one place the
-absorbed minutes *are* the finding is `_check_tolerance`, where the engine's own tolerance setting is
-wider than the law allows.
+absorbed minutes *are* the finding is `_check_tolerance`, where the agreement's own tolerance setting
+is wider than the law allows.
 
 **Where the punches come from.** In production this reads the T&A system's punch store — in Brazil the
 REP-P electronic register CLT Art. 74 §2º requires. Here the stream is generated deterministically
@@ -39,15 +48,21 @@ from datetime import date, timedelta
 from functools import lru_cache
 
 from .validation_catalog import (
+    AGREEMENTS,
+    ARMS,
+    ARMS_BY_KEY,
     COUNTRY_META,
-    GROUPS,
-    GROUPS_BY_KEY,
+    DEPARTMENTS,
+    DEPARTMENTS_BY_KEY,
+    ORGANIZATION,
     PERIOD_END,
     PERIOD_LABEL,
     PERIOD_START,
     RULES,
-    BusinessGroup,
+    Agreement,
+    Department,
     Rule,
+    Segment,
 )
 
 PERIOD_DAYS = (PERIOD_END - PERIOD_START).days + 1
@@ -69,16 +84,16 @@ REST_GRACE = 2 * LEGAL_DAILY_TOLERANCE
 # clocking in at 05:54 has not become a night shift, and an 8-hour day shift has not become a *mixta*.
 NIGHT_FLOOR = 30
 
-# What one point of a rule's breach rate costs the score, by severity. A rule breached for the whole
-# group spends its full weight; one breached for 5% of it spends a twentieth.
+# What one point of a rule's breach rate costs the score, by severity. A rule breached across the whole
+# department spends its full weight; one breached for 5% of it spends a twentieth.
 SEVERITY_WEIGHT = {"critical": 45.0, "high": 25.0, "medium": 12.0}
 
 # What a breach costs *before* its reach is priced in. The share-scaled weight above is the bulk of the
 # penalty — a rule broken for everyone must dominate one broken for a handful — but scaling alone lets a
-# real finding round away to nothing: a critical rule reaching 1% of a large group costs 0.45 points,
-# and the department then reports a spotless 100 with a live violation listed underneath it. The floor
-# is what makes "some breaches" and "no breaches" different numbers no matter how few people are caught
-# by them, which is the whole claim the score is making.
+# real finding round away to nothing: a critical rule reaching 1% of a large department costs 0.45
+# points, and the department then reports a spotless 100 with a live violation listed underneath it. The
+# floor is what makes "some breaches" and "no breaches" different numbers no matter how few people are
+# caught by them, which is the whole claim the score is making.
 SEVERITY_FLOOR = {"critical": 6.0, "high": 3.0, "medium": 1.5}
 
 
@@ -143,6 +158,8 @@ class Employee:
     age: int
     trust_position: bool          # CLT Art. 224 §2º — outside the 6-hour banking day
     bank_opening_minutes: int     # hour-bank balance carried into the period from the T&A system
+    agreement: str                # the agreement this person sits under — which clauses bind them
+    segment: str                  # the slice of the department they belong to, in its own words
     days: list[Day] = field(default_factory=list)
 
 
@@ -150,19 +167,19 @@ def _dates() -> list[date]:
     return [PERIOD_START + timedelta(days=i) for i in range(PERIOD_DAYS)]
 
 
-def _plan(group: BusinessGroup) -> dict[int, set[str]]:
-    """Which employees carry which pattern. Demo scaffolding: the detectors never see this.
+def _plan(dept: Department, segment: Segment) -> dict[int, set[str]]:
+    """Which employees in a segment carry which pattern. Demo scaffolding: detectors never see this.
 
-    Incidence is realised as an exact count rather than a per-employee coin flip, so "15% of the
-    group" is 15% of the group.
+    Incidence is realised as an exact count rather than a per-employee coin flip, so "1% of the
+    segment" is 1% of the segment.
     """
-    rng = random.Random(f"plan:{group.key}")
-    plan: dict[int, set[str]] = {i: set() for i in range(group.headcount)}
-    for code, rate in sorted(group.incidence.items()):
-        n = round(group.headcount * rate)
+    rng = random.Random(f"plan:{dept.key}:{segment.agreement}")
+    plan: dict[int, set[str]] = {i: set() for i in range(segment.headcount)}
+    for code, rate in sorted(segment.incidence.items()):
+        n = round(segment.headcount * rate)
         if n <= 0:
             continue
-        pool = list(range(group.headcount))
+        pool = list(range(segment.headcount))
         rng.shuffle(pool)
         for i in pool[:n]:
             plan[i].add(code)
@@ -179,14 +196,14 @@ def _punches(first_in: int, worked: int, break_len: int) -> list[tuple[int, int]
     return [(first_in, first_in + half), (first_in + half + break_len, first_in + worked + break_len)]
 
 
-def _schedule(group: BusinessGroup, idx: int, rng: random.Random) -> list[tuple[date, int, int]]:
+def _schedule(ag: Agreement, idx: int, rng: random.Random) -> list[tuple[date, int, int]]:
     """The roster before anything goes wrong: (date, scheduled worked minutes, nominal first punch-in).
 
     Every roster sits under its weekly ceiling with room to spare, which is both what a real schedule
     does and what keeps clock noise from tripping a weekly rule on its own.
     """
-    p = group.profile
-    holidays = {date.fromisoformat(iso) for iso, _ in group.holidays}
+    p = ag.profile
+    holidays = {date.fromisoformat(iso) for iso, _ in ag.holidays}
     dates = _dates()
     rows: list[tuple[date, int, int]] = []
 
@@ -220,14 +237,15 @@ def _schedule(group: BusinessGroup, idx: int, rng: random.Random) -> list[tuple[
         start_shift = rng.randint(-p.start_jitter // 2, p.start_jitter // 2) if p.start_jitter else 0
         nominal = p.start_minutes + start_shift
         works_sunday = rng.random() < p.sunday_share
-        # A Sunday scale is a *rotation*: two Sundays on, one off, which is what keeps the group inside
-        # the CCT's one-Sunday-in-three clause until something goes wrong. The compensating rest lands
-        # on the Friday of the same week — late enough that no run of worked days reaches nine, which
-        # is where a seven-day window stops being able to find 24 hours of rest either side of it.
+        # A Sunday scale is a *rotation*: two Sundays on, one off, which is what keeps a store
+        # population inside the CCT's one-Sunday-in-three clause until something goes wrong. The
+        # compensating rest lands on the Friday of the same week — late enough that no run of worked
+        # days reaches nine, which is where a seven-day window stops being able to find 24 hours of
+        # rest either side of it. An office roster has `sunday_share=0.0`, so none of this fires.
         sundays = [d for d in dates if d.weekday() == 6]
         worked_sundays = {d for k, d in enumerate(sundays) if works_sunday and (k + idx) % 3 != 0}
         comp = {s - timedelta(days=2) for s in worked_sundays}
-        saturday = {"retail": 220, "franchise": 200, "logistics": 180, "mx_retail": 360}.get(
+        saturday = {"commerce": 220, "logistics": 180, "mx_retail": 360}.get(
             p.kind, p.scheduled_minutes // 2)
         for d in dates:
             wd = d.weekday()
@@ -244,43 +262,46 @@ def _schedule(group: BusinessGroup, idx: int, rng: random.Random) -> list[tuple[
             rows.append((d, worked, nominal))
 
     # A holiday is a rostered day off everywhere. Working one then becomes an event the punch data can
-    # show, instead of the baseline every employee in the group shares.
+    # show, instead of the baseline every employee in the population shares.
     return [(d, 0 if d in holidays else worked, first_in) for d, worked, first_in in rows]
 
 
-def roster(group: BusinessGroup) -> list[Employee]:
-    """The group's employees with their month of punches."""
-    plan = _plan(group)
-    ordinal = list(GROUPS_BY_KEY).index(group.key) + 1
-    first_pool, last_pool = (_BR_FIRST, _BR_LAST) if group.country == "BR" else (_MX_FIRST, _MX_LAST)
+def roster(dept: Department, segment: Segment, ag: Agreement) -> list[Employee]:
+    """One segment's employees with their month of punches."""
+    plan = _plan(dept, segment)
+    dept_ord = list(DEPARTMENTS_BY_KEY).index(dept.key) + 1
+    seg_ord = list(dept.segments).index(segment) + 1
+    first_pool, last_pool = (_BR_FIRST, _BR_LAST) if ag.country == "BR" else (_MX_FIRST, _MX_LAST)
     people: list[Employee] = []
 
-    for idx in range(group.headcount):
-        rng = random.Random(f"{group.key}:{idx}")
+    for idx in range(segment.headcount):
+        rng = random.Random(f"{dept.key}:{segment.agreement}:{idx}")
         planted = plan[idx]
-        # A minor is only ever placed in a group whose rule set actually covers minors, so the under-18
-        # finding is never a population accident.
+        # A minor is only ever placed in a population whose rule set actually covers minors, so the
+        # under-18 finding is never an accident of who got generated where.
         age = 17 if "br-minor-night" in planted else rng.randint(19, 58)
-        trust = group.profile.kind == "banking" and idx % 5 == 0
+        trust = ag.profile.kind == "banking" and idx % 5 == 0
         emp = Employee(
-            matricula=f"{group.country}{ordinal}-{100000 + idx * 7:06d}",
+            matricula=f"{ag.country}{dept_ord:02d}{seg_ord}-{100000 + idx * 7:06d}",
             name=f"{rng.choice(first_pool)} {rng.choice(last_pool)}",
-            role=rng.choice(group.roles),
-            site=rng.choice(group.sites),
+            role=rng.choice(segment.roles),
+            site=rng.choice(segment.sites),
             age=age,
             trust_position=trust,
             bank_opening_minutes=(rng.randint(31 * 60, 44 * 60) if "br-hour-bank" in planted
                                   else rng.randint(0, 9 * 60)),
+            agreement=ag.key,
+            segment=segment.label,
         )
 
         tolerance_plant = "br-tolerance-10m" in planted
-        for d, scheduled, first_in in _schedule(group, idx, rng):
+        for d, scheduled, first_in in _schedule(ag, idx, rng):
             if scheduled <= 0:
                 emp.days.append(Day(day=d, punches=[], scheduled_minutes=0))
                 continue
             if trust:
                 scheduled = 480      # a genuine Art. 224 §2º trust position is contracted for 8 hours
-            break_len = group.profile.break_minutes if scheduled > 300 else 15
+            break_len = ag.profile.break_minutes if scheduled > 300 else 15
             variance = rng.randint(-4, 7)
             if tolerance_plant and rng.random() < 0.45:
                 # Absorbed by a tolerance setting wider than the law allows — see `_check_tolerance`.
@@ -289,15 +310,15 @@ def roster(group: BusinessGroup) -> list[Employee]:
                                                         scheduled + variance, break_len),
                                 scheduled_minutes=scheduled))
 
-        _plant(group, emp, planted, random.Random(f"plant:{group.key}:{idx}"))
+        _plant(ag, emp, planted, random.Random(f"plant:{dept.key}:{segment.agreement}:{idx}"))
         people.append(emp)
     return people
 
 
-def _plant(group: BusinessGroup, emp: Employee, planted: set[str], rng: random.Random) -> None:
+def _plant(ag: Agreement, emp: Employee, planted: set[str], rng: random.Random) -> None:
     """Write the patterns into the punch stream. Everything here edits *punches* — never a flag a
     detector could read — so each finding still has to be re-derived from the clock data."""
-    holidays = {date.fromisoformat(iso) for iso, _ in group.holidays}
+    holidays = {date.fromisoformat(iso) for iso, _ in ag.holidays}
     worked = [i for i, d in enumerate(emp.days) if d.punches]
     if not worked:
         return
@@ -334,7 +355,8 @@ def _plant(group: BusinessGroup, emp: Employee, planted: set[str], rng: random.R
             return
 
         if code == "br-inter-11h":
-            # A late close followed by an early open — the "fechamento e abertura" pattern.
+            # A late close followed by an early open — the "fechamento e abertura" pattern in a store,
+            # and the 02:00 plantão call-out in an on-call engineering rotation.
             for i in rng.sample(worked, min(len(worked), rng.randint(1, 3))):
                 nxt = next((j for j in worked if j > i), None)
                 if nxt is None or emp.days[nxt].day != emp.days[i].day + timedelta(days=1):
@@ -395,7 +417,7 @@ def _plant(group: BusinessGroup, emp: Employee, planted: set[str], rng: random.R
                         emp.days[comp].scheduled_minutes = 0
 
         elif code in ("br-holiday-double", "mx-holiday-double"):
-            for iso, _label in group.holidays:
+            for iso, _label in ag.holidays:
                 target = date.fromisoformat(iso)
                 for i, d in enumerate(emp.days):
                     if d.day == target and not d.punches:
@@ -512,7 +534,7 @@ def _weeks(emp: Employee) -> dict[date, list[Day]]:
     return weeks
 
 
-def _check_interjornada(emp, group, rule) -> list[Violation]:
+def _check_interjornada(emp, ag, rule) -> list[Violation]:
     need = rule.params["min_hours"] * 60
     out = []
     blocks = _blocks(emp)
@@ -529,7 +551,7 @@ def _check_interjornada(emp, group, rule) -> list[Violation]:
     return out
 
 
-def _check_intrajornada(emp, group, rule) -> list[Violation]:
+def _check_intrajornada(emp, ag, rule) -> list[Violation]:
     need = rule.params["min_minutes"]
     above = rule.params["over_worked_minutes"]
     out = []
@@ -546,7 +568,7 @@ def _check_intrajornada(emp, group, rule) -> list[Violation]:
     return out
 
 
-def _check_daily_overtime_cap(emp, group, rule) -> list[Violation]:
+def _check_daily_overtime_cap(emp, ag, rule) -> list[Violation]:
     cap = rule.params["max_overtime_minutes"]
     out = []
     for d in emp.days:
@@ -564,7 +586,7 @@ def _check_daily_overtime_cap(emp, group, rule) -> list[Violation]:
     return out
 
 
-def _check_weekly_hours(emp, group, rule) -> list[Violation]:
+def _check_weekly_hours(emp, ag, rule) -> list[Violation]:
     cap = int(rule.params["max_hours"] * 60)
     out = []
     for monday, days in sorted(_weeks(emp).items()):
@@ -584,7 +606,7 @@ def _check_weekly_hours(emp, group, rule) -> list[Violation]:
     return out
 
 
-def _check_weekly_overtime_cap(emp, group, rule) -> list[Violation]:
+def _check_weekly_overtime_cap(emp, ag, rule) -> list[Violation]:
     cap = int(rule.params["max_overtime_hours"] * 60)
     out = []
     for monday, days in sorted(_weeks(emp).items()):
@@ -603,7 +625,7 @@ def _check_weekly_overtime_cap(emp, group, rule) -> list[Violation]:
     return out
 
 
-def _check_weekly_rest(emp, group, rule) -> list[Violation]:
+def _check_weekly_rest(emp, ag, rule) -> list[Violation]:
     """A sliding seven-day window, not a calendar week: the statute grants 24 hours in every seven
     days, and a run of worked days that straddles a Sunday is the one a calendar-week test misses.
 
@@ -644,7 +666,7 @@ def _check_weekly_rest(emp, group, rule) -> list[Violation]:
     return out
 
 
-def _check_sunday_rotation(emp, group, rule) -> list[Violation]:
+def _check_sunday_rotation(emp, ag, rule) -> list[Violation]:
     limit = rule.params["max_consecutive_sundays"]
     sundays = [d for d in emp.days if d.day.weekday() == 6]
     run, out = 0, []
@@ -662,12 +684,12 @@ def _check_sunday_rotation(emp, group, rule) -> list[Violation]:
     return out
 
 
-def _check_tolerance(emp, group, rule) -> list[Violation]:
-    """A configuration finding, read off the punches: the engine absorbs a wider variance than
-    Art. 58 §1º allows, so the minutes between the two limits are worked time that was neither paid
-    nor recorded as overtime."""
+def _check_tolerance(emp, ag, rule) -> list[Violation]:
+    """A configuration finding, read off the punches: the T&A instance absorbs a wider variance than
+    Art. 58 §1º allows for this population, so the minutes between the two limits are worked time that
+    was neither paid nor recorded as overtime."""
     legal = rule.params["per_day_minutes"]
-    configured = group.config.get("tolerance_minutes", legal)
+    configured = ag.config.get("tolerance_minutes", legal)
     if configured <= legal:
         return []
     out = []
@@ -679,18 +701,18 @@ def _check_tolerance(emp, group, rule) -> list[Violation]:
             out.append(Violation(
                 emp, d.day,
                 observed=f"{excess} min absorbed",
-                detail=f"{excess} minutes past the schedule — inside the engine's {configured:.0f}-minute "
-                       f"tolerance but past the {legal} the law allows, so {excess - legal} minutes of "
-                       f"worked time were absorbed rather than paid.",
+                detail=f"{excess} minutes past the schedule — inside the {configured:.0f}-minute tolerance "
+                       f"configured for this population but past the {legal} the law allows, so "
+                       f"{excess - legal} minutes of worked time were absorbed rather than paid.",
                 punches=_card(d),
                 weight=(excess - legal) / 10,
             ))
     return out
 
 
-def _check_night_premium(emp, group, rule) -> list[Violation]:
+def _check_night_premium(emp, ag, rule) -> list[Violation]:
     required = rule.params["required_pct"]
-    configured = group.config.get("night_premium_pct", required)
+    configured = ag.config.get("night_premium_pct", required)
     if configured >= required:
         return []
     window = rule.params["window"]
@@ -710,9 +732,9 @@ def _check_night_premium(emp, group, rule) -> list[Violation]:
     return out
 
 
-def _check_holiday_work(emp, group, rule) -> list[Violation]:
+def _check_holiday_work(emp, ag, rule) -> list[Violation]:
     out = []
-    for iso, label in group.holidays:
+    for iso, label in ag.holidays:
         target = date.fromisoformat(iso)
         day = next((d for d in emp.days if d.day == target), None)
         if day is None or not day.punches:
@@ -732,7 +754,7 @@ def _check_holiday_work(emp, group, rule) -> list[Violation]:
     return out
 
 
-def _check_hour_bank(emp, group, rule) -> list[Violation]:
+def _check_hour_bank(emp, ag, rule) -> list[Violation]:
     cap = rule.params["cap_hours"] * 60
     accrued = sum(_countable(d) - d.scheduled_minutes for d in emp.days if d.punches and d.scheduled_minutes)
     balance = emp.bank_opening_minutes + accrued
@@ -748,7 +770,7 @@ def _check_hour_bank(emp, group, rule) -> list[Violation]:
     )]
 
 
-def _check_rest_12x36(emp, group, rule) -> list[Violation]:
+def _check_rest_12x36(emp, ag, rule) -> list[Violation]:
     need = rule.params["min_rest_hours"] * 60
     shift = rule.params["shift_hours"] * 60
     out = []
@@ -768,7 +790,7 @@ def _check_rest_12x36(emp, group, rule) -> list[Violation]:
     return out
 
 
-def _check_minor_night(emp, group, rule) -> list[Violation]:
+def _check_minor_night(emp, ag, rule) -> list[Violation]:
     if emp.age >= 18:
         return []
     window = rule.params["window"]
@@ -787,7 +809,7 @@ def _check_minor_night(emp, group, rule) -> list[Violation]:
     return out
 
 
-def _check_driving_break(emp, group, rule) -> list[Violation]:
+def _check_driving_break(emp, ag, rule) -> list[Violation]:
     max_stretch = rule.params["max_stretch_minutes"]
     min_break = rule.params["min_break_minutes"]
     out = []
@@ -813,7 +835,7 @@ def _check_driving_break(emp, group, rule) -> list[Violation]:
     return out
 
 
-def _check_banking_day(emp, group, rule) -> list[Violation]:
+def _check_banking_day(emp, ag, rule) -> list[Violation]:
     if emp.trust_position:
         return []      # Art. 224 §2º — a genuine trust position sits outside the 6-hour day
     cap = int(rule.params["max_hours"] * 60)
@@ -848,7 +870,7 @@ def _classify_shift(day: Day, window: tuple[int, int]) -> str:
     return "mixta" if night < 210 else "nocturna"
 
 
-def _check_night_shift_cap(emp, group, rule) -> list[Violation]:
+def _check_night_shift_cap(emp, ag, rule) -> list[Violation]:
     window, cap = rule.params["window"], int(rule.params["max_hours"] * 60)
     out = []
     for d in emp.days:
@@ -864,7 +886,7 @@ def _check_night_shift_cap(emp, group, rule) -> list[Violation]:
     return out
 
 
-def _check_mixed_shift_cap(emp, group, rule) -> list[Violation]:
+def _check_mixed_shift_cap(emp, ag, rule) -> list[Violation]:
     window, cap = rule.params["window"], int(rule.params["max_hours"] * 60)
     out = []
     for d in emp.days:
@@ -880,9 +902,9 @@ def _check_mixed_shift_cap(emp, group, rule) -> list[Violation]:
     return out
 
 
-def _check_sunday_premium(emp, group, rule) -> list[Violation]:
+def _check_sunday_premium(emp, ag, rule) -> list[Violation]:
     required = rule.params["required_pct"]
-    configured = group.config.get("sunday_premium_pct", required)
+    configured = ag.config.get("sunday_premium_pct", required)
     if configured >= required:
         return []
     out = []
@@ -931,38 +953,70 @@ def grade(score: int) -> str:
     return "E"
 
 
-def _clear_note(rule: Rule, group: BusinessGroup) -> str | None:
+def _clear_note(rule: Rule, ag: Agreement, people: list[Employee]) -> str | None:
     """Why a rule came back clear, where "clear" needs qualifying.
 
     A rule that passed and a rule that had nothing to test look identical on a dashboard unless the
     difference is said out loud — so it is said out loud.
     """
-    if rule.check == "holiday_work" and not group.holidays:
+    if rule.check == "holiday_work" and not ag.holidays:
         return ("No statutory holiday fell inside the period, so the rule was evaluated with nothing to "
                 "test — not passed on the merits.")
+    if rule.check == "minor_night" and not any(e.age < 18 for e in people):
+        return ("No employee under 18 is on this population's register for the period, so the "
+                "prohibition was evaluated against an empty set — not passed on the merits.")
     if rule.check == "sunday_premium":
-        configured = group.config.get("sunday_premium_pct", rule.params["required_pct"])
+        configured = ag.config.get("sunday_premium_pct", rule.params["required_pct"])
         if configured >= rule.params["required_pct"]:
             return (f"The prima dominical is configured at {configured:.0f}%, at or above the "
                     f"{rule.params['required_pct']:.0f}% floor — so Sunday work in the period is priced "
                     f"correctly.")
     if rule.check == "night_premium":
-        configured = group.config.get("night_premium_pct", rule.params["required_pct"])
+        configured = ag.config.get("night_premium_pct", rule.params["required_pct"])
         if configured >= rule.params["required_pct"]:
             return (f"The night premium is configured at {configured:.0f}%, matching what the CCT commits "
                     f"to — every night hour in the period is priced correctly.")
     if rule.check == "tolerance":
-        configured = group.config.get("tolerance_minutes", rule.params["per_day_minutes"])
+        configured = ag.config.get("tolerance_minutes", rule.params["per_day_minutes"])
         if configured <= rule.params["per_day_minutes"]:
             return (f"Tolerance is configured at {configured:.0f} minutes a day, inside the "
                     f"{rule.params['per_day_minutes']} the statute allows.")
     return None
 
 
-def _rule_payload(rule: Rule, group: BusinessGroup, violations: list[Violation], headcount: int) -> dict:
-    affected = {v.employee.matricula for v in violations}
-    occurrences = len(violations)
-    ranked = sorted(violations, key=lambda v: (-v.weight, v.when, v.employee.name))
+@dataclass
+class _RuleRun:
+    """One rule's findings across every segment of the department that is subject to it."""
+
+    rule: Rule
+    violations: list[Violation] = field(default_factory=list)
+    population: int = 0                                  # headcount the rule actually binds
+    agreements: list[str] = field(default_factory=list)   # the agreements that bring it in, in order
+    notes: list[tuple[str, str]] = field(default_factory=list)   # (agreement short, clear note)
+
+
+def _collapse_notes(notes: list[tuple[str, str]]) -> str | None:
+    """One clear note per rule, attributed only where the agreements actually disagree.
+
+    Three agreements each reporting "tolerance is configured at 10 minutes" is one fact about the
+    department, not three, and prefixing each copy with a union's name turns a plain sentence into
+    noise. Attribution earns its keep only when the reason differs between populations.
+    """
+    bodies = list(dict.fromkeys(note for _short, note in notes))
+    if not bodies:
+        return None
+    if len(bodies) == 1:
+        return bodies[0]
+    return " ".join(f"{short} — {note}" for short, note in notes)
+
+
+def _rule_payload(run: _RuleRun, dept_headcount: int) -> dict:
+    rule = run.rule
+    affected = {v.employee.matricula for v in run.violations}
+    occurrences = len(run.violations)
+    ranked = sorted(run.violations, key=lambda v: (-v.weight, v.when, v.employee.name))
+    # Two denominators, both on screen. `affected_share` is of the population the rule binds — the
+    # meter's claim. `org_share` is of the department — what the score spends. See the module docstring.
     return {
         "code": rule.code,
         "capability": rule.capability,
@@ -975,13 +1029,17 @@ def _rule_payload(rule: Rule, group: BusinessGroup, violations: list[Violation],
         "quote": rule.quote,
         "consequence": rule.consequence,
         "status": "breach" if occurrences else "clear",
-        "clear_note": None if occurrences else _clear_note(rule, group),
+        "clear_note": None if occurrences else _collapse_notes(run.notes),
+        "agreements": [{"key": k, "short": AGREEMENTS[k].short} for k in dict.fromkeys(run.agreements)],
+        "population": run.population,
         "affected_employees": len(affected),
-        "affected_share": round(len(affected) / headcount, 4) if headcount else 0.0,
+        "affected_share": round(len(affected) / run.population, 4) if run.population else 0.0,
+        "org_share": round(len(affected) / dept_headcount, 4) if dept_headcount else 0.0,
         "occurrences": occurrences,
-        "exposure": round(sum(v.weight for v in violations) * rule.unit_cost, 2),
+        "exposure": round(sum(v.weight for v in run.violations) * rule.unit_cost, 2),
         "unit_cost": rule.unit_cost,
-        "sites": sorted({v.employee.site for v in violations}),
+        "sites": sorted({v.employee.site for v in run.violations}),
+        "segments": sorted({v.employee.segment for v in run.violations}),
         "violations_shown": min(occurrences, MAX_VIOLATIONS_PER_RULE),
         "violations": [
             {
@@ -989,6 +1047,9 @@ def _rule_payload(rule: Rule, group: BusinessGroup, violations: list[Violation],
                 "matricula": v.employee.matricula,
                 "role": v.employee.role,
                 "site": v.employee.site,
+                "segment": v.employee.segment,
+                "agreement": AGREEMENTS[v.employee.agreement].short,
+                "agreement_key": v.employee.agreement,
                 "date": v.when.isoformat(),
                 "observed": v.observed,
                 "detail": v.detail,
@@ -1001,58 +1062,87 @@ def _rule_payload(rule: Rule, group: BusinessGroup, violations: list[Violation],
 
 
 @lru_cache(maxsize=None)
-def validate(group_key: str) -> dict:
-    """Run every rule the group is subject to over its punches, and score the result.
+def validate(dept_key: str) -> dict:
+    """Run every rule the department's agreements are subject to, over the punches of the population
+    each one covers, and score the result.
 
-    Cached because the punch stream is deterministic: a second visit to the same group is the same run,
-    which is also what makes the number on the dashboard something a reviewer can quote.
+    Cached because the punch stream is deterministic: a second visit to the same department is the same
+    run, which is also what makes the number on the dashboard something a reviewer can quote.
     """
-    group = GROUPS_BY_KEY[group_key]
-    people = roster(group)
-    headcount = len(people)
+    dept = DEPARTMENTS_BY_KEY[dept_key]
+    runs: dict[str, _RuleRun] = {}
+    in_breach: set[str] = set()
+    punch_records = days_analyzed = 0
+    segments: list[dict] = []
 
-    per_rule: dict[str, list[Violation]] = {code: [] for code in group.rules}
-    for emp in people:
-        for code in group.rules:
+    for segment in dept.segments:
+        ag = AGREEMENTS[segment.agreement]
+        people = roster(dept, segment, ag)
+        punch_records += sum(len(d.punches) * 2 for e in people for d in e.days)
+        days_analyzed += sum(1 for e in people for d in e.days if d.punches)
+        seg_breached = 0
+
+        for code in ag.rules:
             rule = RULES[code]
-            per_rule[code].extend(_CHECKS[rule.check](emp, group, rule))
+            run = runs.setdefault(code, _RuleRun(rule=rule))
+            run.population += segment.headcount
+            run.agreements.append(ag.key)
+            found: list[Violation] = []
+            for emp in people:
+                found.extend(_CHECKS[rule.check](emp, ag, rule))
+            run.violations.extend(found)
+            if found:
+                seg_breached += 1
+                in_breach |= {v.employee.matricula for v in found}
+            else:
+                note = _clear_note(rule, ag, people)
+                if note:
+                    # Kept with its agreement so `_collapse_notes` can attribute it only where the
+                    # populations genuinely differ — "no holiday fell in the period" can be true of
+                    # one population and false of the next.
+                    run.notes.append((ag.short, note))
 
-    rules = [_rule_payload(RULES[c], group, per_rule[c], headcount) for c in group.rules]
+        segments.append(segment_payload(segment, ag, seg_breached))
+
+    headcount = dept.headcount
+    rules = [_rule_payload(r, headcount) for r in runs.values()]
     order = {"critical": 0, "high": 1, "medium": 2}
     rules.sort(key=lambda r: (r["status"] != "breach", order[r["severity"]], -r["affected_employees"]))
 
     breached = [r for r in rules if r["status"] == "breach"]
-    penalty = sum(SEVERITY_FLOOR[r["severity"]] + SEVERITY_WEIGHT[r["severity"]] * r["affected_share"]
+    penalty = sum(SEVERITY_FLOOR[r["severity"]] + SEVERITY_WEIGHT[r["severity"]] * r["org_share"]
                   for r in breached)
     score = max(0, min(100, round(100 - penalty)))
+    meta = COUNTRY_META[dept.country]
 
-    in_breach = {v.employee.matricula for vs in per_rule.values() for v in vs}
     return {
-        "group": group_payload(group),
+        "department": department_payload(dept),
         "period": period_payload(),
         "score": score,
         "grade": grade(score),
         "score_basis": (
             "100 minus, for every breached rule, a fixed cost for the breach existing at all "
             "(critical 6 · high 3 · medium 1.5) plus its severity weight (critical 45 · high 25 · "
-            "medium 12) scaled by the share of the group it reaches. A rule breached for everyone spends "
-            "its full weight; one breached for a single employee still costs the fixed part, so only a "
-            "group with nothing found scores 100."
+            "medium 12) scaled by the share of the *department* it reaches. A rule breached for everyone "
+            "spends its full weight; one breached for a single employee still costs the fixed part, so "
+            "only a department with nothing found scores 100."
         ),
         "punch_source": ("Oitchau T&A · REP-P registro eletrônico de ponto (CLT Art. 74 §2º)"
-                         if group.country == "BR"
+                         if dept.country == "BR"
                          else "Oitchau T&A · registro de asistencia (LFT Art. 804)"),
+        "segments": segments,
         "totals": {
             "employees": headcount,
             "employees_in_breach": len(in_breach),
-            "punch_records": sum(len(d.punches) * 2 for e in people for d in e.days),
-            "days_analyzed": sum(1 for e in people for d in e.days if d.punches),
+            "punch_records": punch_records,
+            "days_analyzed": days_analyzed,
+            "agreements": len(dept.segments),
             "rules_evaluated": len(rules),
             "rules_breached": len(breached),
             "violations": sum(r["occurrences"] for r in rules),
             "exposure": round(sum(r["exposure"] for r in rules), 2),
-            "currency": group.currency,
-            "symbol": COUNTRY_META[group.country]["symbol"],
+            "currency": meta["currency"],
+            "symbol": meta["symbol"],
         },
         "severity_counts": {
             sev: sum(1 for r in breached if r["severity"] == sev) for sev in ("critical", "high", "medium")
@@ -1061,28 +1151,69 @@ def validate(group_key: str) -> dict:
     }
 
 
-def group_payload(group: BusinessGroup) -> dict:
+# --- payloads ----------------------------------------------------------------
+
+
+def segment_payload(segment: Segment, ag: Agreement, rules_breached: int | None = None) -> dict:
+    """One slice of a department and the agreement that governs it. `rules_breached` is only present
+    on a run — the catalog cannot know it, and must not imply it does."""
+    meta = COUNTRY_META[ag.country]
+    out = {
+        "label": segment.label,
+        "headcount": segment.headcount,
+        "sites": list(segment.sites),
+        "roles": list(segment.roles),
+        "agreement": {
+            "key": ag.key,
+            "short": ag.short,
+            "category": ag.category,
+            "instrument": meta["instrument"],
+            "registry": meta["registry"],
+            "cct_official": ag.cct_official,
+            "cct_registration": ag.cct_registration,
+            "cct_validity": ag.cct_validity,
+            "union_official": ag.union_official,
+            "employer_body": ag.employer_body,
+            "rule_count": len(ag.rules),
+            "policy_key": ag.policy_key,
+        },
+    }
+    if rules_breached is not None:
+        out["rules_breached"] = rules_breached
+    return out
+
+
+def department_payload(dept: Department) -> dict:
+    """Everything the UI can say about a department *without* having validated it.
+
+    Deliberately carries no score, no breach count and no status: the compliance number is what
+    running a validation is *for*, so nothing here may imply we already know it.
+    """
+    meta = COUNTRY_META[dept.country]
+    agreements = [AGREEMENTS[s.agreement] for s in dept.segments]
     return {
-        "key": group.key,
-        "name": group.name,
-        "country": group.country,
-        "country_name": COUNTRY_META[group.country]["name"],
-        "flag": COUNTRY_META[group.country]["flag"],
-        "category": group.category,
-        "cct_official": group.cct_official,
-        "cct_instrument": COUNTRY_META[group.country]["instrument"],
-        "cct_registration": group.cct_registration,
-        "cct_validity": group.cct_validity,
-        "union_official": group.union_official,
-        "employer_body": group.employer_body,
-        "headcount": group.headcount,
-        "sites": list(group.sites),
-        "roles": list(group.roles),
-        "rule_count": len(group.rules),
-        "policy_key": group.policy_key,
-        "currency": group.currency,
-        "holidays": [{"date": iso, "name": name} for iso, name in group.holidays],
-        "exclusions": [{"rule": r, "why": w} for r, w in group.exclusions],
+        "key": dept.key,
+        "arm": dept.arm,
+        "arm_name": ARMS_BY_KEY[dept.arm].name,
+        "name": dept.name,
+        "mandate": dept.mandate,
+        "country": dept.country,
+        "country_name": meta["name"],
+        "flag": meta["flag"],
+        "instrument": meta["instrument"],
+        "currency": meta["currency"],
+        "symbol": meta["symbol"],
+        "headcount": dept.headcount,
+        "sites": sorted({site for s in dept.segments for site in s.sites}),
+        "rule_count": len({code for a in agreements for code in a.rules}),
+        "segments": [segment_payload(s, AGREEMENTS[s.agreement]) for s in dept.segments],
+        "policy_keys": sorted({a.policy_key for a in agreements if a.policy_key}),
+        # Per-agreement exclusions, attributed. A rule another rule displaces is not a rule that
+        # passed, and on a 12×36 roster inside an HR department that distinction is the whole argument.
+        "exclusions": [
+            {"rule": r, "why": w, "agreement": a.short}
+            for a in agreements for r, w in a.exclusions
+        ],
     }
 
 
@@ -1096,20 +1227,33 @@ def period_payload() -> dict:
 
 
 def catalog() -> dict:
-    """The picker: every business role group, grouped by country. Deliberately without a score —
-    the compliance number is what choosing a group is *for*, so it stays the dashboard's to reveal."""
-    countries = []
-    for code in ("BR", "MX"):
-        meta = COUNTRY_META[code]
-        groups = [group_payload(g) for g in GROUPS if g.country == code]
-        countries.append({
-            "code": code,
-            "name": meta["name"],
-            "flag": meta["flag"],
-            "law": meta["law"],
-            "instrument": meta["instrument"],
-            "registry": meta["registry"],
-            "employees": sum(g["headcount"] for g in groups),
-            "groups": groups,
+    """The org chart: four arms, their departments, and what each department is made of.
+
+    Deliberately without a score, a status or a breach count anywhere in it. Nothing has been analysed
+    at this point, and a chart that showed "3 breaches" before a run would be reporting a number it
+    does not have. Choosing a department is what produces those numbers.
+    """
+    arms = []
+    for arm in ARMS:
+        departments = [department_payload(d) for d in DEPARTMENTS if d.arm == arm.key]
+        arms.append({
+            "key": arm.key,
+            "name": arm.name,
+            "blurb": arm.blurb,
+            "employees": sum(d["headcount"] for d in departments),
+            "departments": departments,
         })
-    return {"period": period_payload(), "countries": countries}
+
+    all_depts = [d for a in arms for d in a["departments"]]
+    return {
+        "period": period_payload(),
+        "organization": {
+            "name": ORGANIZATION,
+            "employees": sum(d["headcount"] for d in all_depts),
+            "departments": len(all_depts),
+            "arms": len(arms),
+            "agreements": len({s["agreement"]["key"] for d in all_depts for s in d["segments"]}),
+            "countries": sorted({COUNTRY_META[d["country"]]["name"] for d in all_depts}),
+        },
+        "arms": arms,
+    }

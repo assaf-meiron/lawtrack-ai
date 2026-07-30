@@ -1,34 +1,61 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   ArrowLeft, ArrowRight, Building2,
-  CheckCircle2, ChevronDown, ChevronRight,
-  Scale, Copy, Check, Filter, Ban, Fingerprint, Wrench, Send, ListChecks,
+  CheckCircle2, ChevronDown, ChevronRight, Loader2,
+  Scale, Copy, Check, Filter, Ban, Fingerprint, Wrench, Send, ListChecks, Users,
 } from "lucide-react";
+import * as api from "./api.js";
 import { T } from "./shared.jsx";
 import {
-  SEV, CLEAR, sevMeta, runStatus, departmentName, num, money, pct, ScoreDial, Tile,
+  SEV, CLEAR, sevMeta, runStatus, num, money, pct, ScoreDial, Tile,
 } from "./validationShared.jsx";
 import ValidationOverview from "./ValidationOverview.jsx";
 
-/* Payroll Validation — the punches, checked against the agreement they were collected under.
+/* Payroll Validation — the punches, checked against the agreements they were collected under.
 
    The review surface ends at a configuration change. This screen starts where that ends: the config is
    live, the month is closed, and the question is whether the punch data already collected obeys the
-   CCT it was collected under.
+   agreements it was collected under.
 
-   Screen 1 (ValidationOverview.jsx) is the department org chart — pick a population. Screen 2, below,
-   is the dashboard that answers for it. Every number on it is computed from the punch stream by the
-   backend engine (`app/validation.py`), and every rule row carries the article or clause that creates
-   it, quoted. A finding a reviewer cannot trace back to a clause is not worth showing. */
+   Screen 1 (ValidationOverview.jsx) is the org chart — four arms, sixteen departments, and no
+   compliance claim anywhere on it until someone picks one. Screen 2, below, is the dashboard that
+   answers for the department that was picked. Every number on it is computed from the punch stream by
+   the backend engine (`app/validation.py`), and every rule row carries the article or clause that
+   creates it, quoted. A finding a reviewer cannot trace back to a clause is not worth showing.
+
+   **A department is not an agreement**, and this screen is where that stops being an abstraction. One
+   department can be three populations under three CCTs, so a rule binds *some* of the headcount and
+   the row has to say which: the meter is a share of the population the clause actually covers, the
+   score spends the share of the whole department, and both denominators are on screen. */
 
 export default function PayrollValidationScreen({ fireToast, onOpenLayers }) {
-  const [run, setRun] = useState(null);
+  const [catalog, setCatalog] = useState(null);
+  /* Every department validated in this session, keyed by department. Owned *here* rather than by the
+     overview, because the overview unmounts the moment a dashboard opens — parking the results there
+     meant a run the user had just waited twelve seconds for was thrown away as soon as they clicked
+     into it, and coming back showed "Not validated" on a department they had plainly just validated.
+     The old prefetch hid this: it refilled the map on every mount, so nothing looked lost. */
+  const [runs, setRuns] = useState({});
+  // The department whose dashboard is open — a key, not a run, so `runs` stays the single source.
+  const [open, setOpen] = useState(null);
 
-  if (run) {
-    return <Dashboard run={run} onBack={() => { window.scrollTo({ top: 0 }); setRun(null); }}
+  useEffect(() => {
+    api.validationDepartments().then(setCatalog).catch((e) => fireToast(e.message, "error"));
+  }, [fireToast]);
+
+  if (open && runs[open]) {
+    return <Dashboard run={runs[open]} onBack={() => { window.scrollTo({ top: 0 }); setOpen(null); }}
       fireToast={fireToast} onOpenLayers={onOpenLayers} />;
   }
-  return <ValidationOverview fireToast={fireToast} onOpenDashboard={setRun} />;
+  if (!catalog) {
+    return (
+      <div className="px-6 py-16 flex items-center gap-2 text-sm" style={{ color: T.muted }}>
+        <Loader2 size={16} className="animate-spin" /> Loading the org chart…
+      </div>
+    );
+  }
+  return <ValidationOverview catalog={catalog} runs={runs} setRuns={setRuns}
+    fireToast={fireToast} onOpenDashboard={setOpen} />;
 }
 
 /* ============================ the dashboard ============================ */
@@ -49,16 +76,18 @@ const CONFIG_FIX_LABELS = {
 };
 
 function Dashboard({ run, onBack, fireToast, onOpenLayers }) {
-  const { group, totals, period } = run;
+  const { department: dept, totals, period, segments } = run;
   const [sevFilter, setSevFilter] = useState("all");
   const [siteFilter, setSiteFilter] = useState("all");
+  const [agFilter, setAgFilter] = useState("all");
   const [open, setOpen] = useState({});
 
   const breached = run.rules.filter((r) => r.status === "breach");
   const clear = run.rules.filter((r) => r.status === "clear");
   const shown = breached.filter((r) =>
     (sevFilter === "all" || r.severity === sevFilter) &&
-    (siteFilter === "all" || r.sites.includes(siteFilter)));
+    (siteFilter === "all" || r.sites.includes(siteFilter)) &&
+    (agFilter === "all" || r.agreements.some((a) => a.key === agFilter)));
 
   return (
     <div className="mx-auto px-6 py-5" style={{ maxWidth: 1180 }}>
@@ -71,12 +100,13 @@ function Dashboard({ run, onBack, fireToast, onOpenLayers }) {
         </button>
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-2 flex-wrap">
-            <span style={{ fontSize: 15 }}>{group.flag}</span>
-            <h1 className="text-lg font-semibold tracking-tight" style={{ color: T.ink }}>{departmentName(group)}</h1>
-            <span className="text-xs" style={{ color: T.muted }}>{group.category}</span>
+            <span style={{ fontSize: 15 }}>{dept.flag}</span>
+            <h1 className="text-lg font-semibold tracking-tight" style={{ color: T.ink }}>{dept.name}</h1>
+            <span className="text-xs" style={{ color: T.muted }}>{dept.country_name}</span>
           </div>
           <div className="text-xs mt-1 leading-snug" style={{ color: T.faint }}>
-            {group.cct_registration}
+            {dept.mandate} · {num(totals.employees)} employees under{" "}
+            {totals.agreements} collective agreement{totals.agreements === 1 ? "" : "s"}
           </div>
         </div>
         <CopyReport run={run} fireToast={fireToast} />
@@ -130,10 +160,12 @@ function Dashboard({ run, onBack, fireToast, onOpenLayers }) {
           sub={`${totals.currency} · indicative`} tone={totals.exposure ? SEV.high : CLEAR} />
       </div>
 
+      <Agreements segments={segments} headcount={totals.employees} />
+
       {/* the rule map */}
       <div className="mt-6 flex items-center gap-2.5 flex-wrap">
         <h2 className="text-sm font-semibold" style={{ color: T.ink }}>
-          Where the punches breach the agreement
+          Where the punches breach the agreements
         </h2>
         <span className="text-xs" style={{ color: T.faint }}>
           {shown.length === breached.length
@@ -146,14 +178,19 @@ function Dashboard({ run, onBack, fireToast, onOpenLayers }) {
             options={[["all", "Every severity"], ...["critical", "high", "medium"]
               .filter((s) => breached.some((r) => r.severity === s))
               .map((s) => [s, SEV[s].label])]} />
+          {segments.length > 1 && (
+            <Select value={agFilter} onChange={setAgFilter}
+              options={[["all", "Every agreement"],
+                ...segments.map((s) => [s.agreement.key, s.agreement.short])]} />
+          )}
           <Select value={siteFilter} onChange={setSiteFilter}
-            options={[["all", "Every site"], ...group.sites.map((s) => [s, s])]} />
+            options={[["all", "Every site"], ...dept.sites.map((s) => [s, s])]} />
         </div>
       </div>
 
       <div className="mt-3 flex flex-col gap-2.5">
         {shown.map((rule) => (
-          <RuleRow key={rule.code} rule={rule} run={run} siteFilter={siteFilter}
+          <RuleRow key={rule.code} rule={rule} run={run} siteFilter={siteFilter} agFilter={agFilter}
             open={!!open[rule.code]} onToggle={() => setOpen((o) => ({ ...o, [rule.code]: !o[rule.code] }))} />
         ))}
         {breached.length > 0 && shown.length === 0 && (
@@ -166,13 +203,13 @@ function Dashboard({ run, onBack, fireToast, onOpenLayers }) {
           <div className="rounded-xl px-4 py-8 text-center text-sm"
             style={{ border: `1px solid ${CLEAR.line}`, background: CLEAR.soft, color: CLEAR.ink }}>
             <CheckCircle2 size={20} className="mx-auto mb-2" />
-            Every rule mapped to this group is clear for {period.label}.
+            Every rule mapped to this department is clear for {period.label}.
           </div>
         )}
       </div>
 
       {clear.length > 0 && <ClearRules rules={clear} />}
-      {group.exclusions.length > 0 && <Exclusions exclusions={group.exclusions} />}
+      {dept.exclusions.length > 0 && <Exclusions exclusions={dept.exclusions} />}
 
       <div className="mt-5 rounded-xl px-4 py-2.5 text-xs leading-snug flex items-center gap-2"
         style={{ background: "#fbfcfe", border: `1px solid ${T.line}`, color: T.faint }}>
@@ -182,6 +219,63 @@ function Dashboard({ run, onBack, fireToast, onOpenLayers }) {
           Cited draft for expert review.
         </div>
       </div>
+    </div>
+  );
+}
+
+/* ============================ what the department is made of ============================ */
+
+/* The department's populations, each with the agreement that governs it, named in full and by
+   registration number. This used to be one line in the header, because a group *was* one CCT. It is a
+   panel now because a department is several, and "Global operations" is not a compliance population —
+   *drivers on CCT SP003912/2026, represented by SINDMOTORISTAS* is. The split is also the reason a
+   rule below can bind 6,800 of 12,400 people, so a reader needs it before the rule map, not after. */
+function Agreements({ segments, headcount }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="mt-3 rounded-xl overflow-hidden" style={{ background: T.panel, border: `1px solid ${T.line}` }}>
+      <button onClick={() => setOpen((v) => !v)} className="w-full px-4 py-2.5 flex items-center gap-2 text-left">
+        <Scale size={14} color={T.ink2} className="shrink-0" />
+        <span className="text-sm font-semibold" style={{ color: T.ink }}>
+          {segments.length} collective agreement{segments.length === 1 ? "" : "s"} across this department
+        </span>
+        <span className="text-xs truncate min-w-0" style={{ color: T.faint }}>
+          {segments.map((s) => `${s.agreement.short} (${num(s.headcount)})`).join(" · ")}
+        </span>
+        <span className="ml-auto shrink-0">
+          {open ? <ChevronDown size={15} color={T.faint} /> : <ChevronRight size={15} color={T.faint} />}
+        </span>
+      </button>
+      {open && segments.map((s) => (
+        <div key={s.agreement.key + s.label} className="px-4 py-3" style={{ borderTop: `1px solid ${T.line}` }}>
+          <div className="flex items-baseline gap-2 flex-wrap">
+            <span className="text-xs font-semibold" style={{ color: T.ink }}>{s.label}</span>
+            <span className="rounded px-1.5 py-0.5 font-semibold"
+              style={{ background: "#eef2ff", color: "#4338ca", fontSize: 10 }}>
+              {num(s.headcount)} · {pct(s.headcount / headcount)} of the department
+            </span>
+            <span style={{ fontSize: 10.5, color: T.faint }}>
+              {s.agreement.rule_count} rules · {s.sites.length} site{s.sites.length === 1 ? "" : "s"}
+            </span>
+          </div>
+          <div className="text-xs leading-relaxed mt-1.5" style={{ color: T.ink2 }}>{s.agreement.cct_official}</div>
+          <div className="mt-1 grid gap-x-6 gap-y-0.5" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))" }}>
+            <Meta label={s.agreement.registry}>{s.agreement.cct_registration} · {s.agreement.cct_validity}</Meta>
+            <Meta label="Category">{s.agreement.category}</Meta>
+            <Meta label="Union">{s.agreement.union_official}</Meta>
+            <Meta label="Employers' side">{s.agreement.employer_body}</Meta>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Meta({ label, children }) {
+  return (
+    <div style={{ fontSize: 10.5, color: T.faint }}>
+      <span className="uppercase tracking-wider" style={{ fontWeight: 700 }}>{label}</span>{" "}
+      <span style={{ color: T.muted }}>{children}</span>
     </div>
   );
 }
@@ -203,7 +297,7 @@ function ActionPanel({ run, onOpenLayers, fireToast }) {
     onOpenLayers?.();
   };
   const assignSchedule = () => {
-    fireToast(`Queued for ${departmentName(run.group)} site managers.`, "ready");
+    fireToast(`Queued for ${run.department.name} site managers.`, "ready");
   };
 
   return (
@@ -275,14 +369,17 @@ function Select({ value, onChange, options }) {
   );
 }
 
-/* One rule: the limit, the clause that sets it, how much of the group is past it, and — once opened —
-   the employees and the punch cards that put them there. */
-function RuleRow({ rule, run, siteFilter, open, onToggle }) {
+/* One rule: the limit, the clause that sets it, how much of the population it binds is past it, and —
+   once opened — the employees and the punch cards that put them there. */
+function RuleRow({ rule, run, siteFilter, agFilter, open, onToggle }) {
   const meta = sevMeta(rule);
-  const { symbol } = run.totals;
-  const violations = siteFilter === "all"
-    ? rule.violations
-    : rule.violations.filter((v) => v.site === siteFilter);
+  const { symbol, employees } = run.totals;
+  const violations = rule.violations.filter((v) =>
+    (siteFilter === "all" || v.site === siteFilter) &&
+    (agFilter === "all" || v.agreement_key === agFilter));
+  // A rule that binds only part of the department has to say so, or the meter's percentage is read
+  // against the wrong headcount. Where it binds everyone, saying it would be noise.
+  const partial = rule.population < employees;
 
   return (
     <div className="rounded-xl overflow-hidden" style={{ background: T.panel, border: `1px solid ${T.line}` }}>
@@ -307,13 +404,20 @@ function RuleRow({ rule, run, siteFilter, open, onToggle }) {
               </span>
             )}
           </div>
+          {partial && (
+            <div className="text-xs mt-1.5 flex items-center gap-1.5 flex-wrap" style={{ color: T.faint }}>
+              <Users size={11} className="shrink-0" />
+              Binds {num(rule.population)} of {num(employees)} — only
+              {" "}{rule.agreements.map((a) => a.short).join(" and ")}
+            </div>
+          )}
         </div>
 
         {/* The meter, then the counts it stands for. */}
         <div className="shrink-0 flex items-center gap-4" style={{ width: 290 }}>
           <div className="flex-1 min-w-0">
             <div className="flex items-baseline justify-between gap-2" style={{ fontSize: 10.5, color: T.faint }}>
-              <span>Employees in breach</span>
+              <span>{partial ? "Of those it binds" : "Employees in breach"}</span>
               <span style={{ fontVariantNumeric: "tabular-nums", color: T.ink2, fontWeight: 600 }}>
                 {num(rule.affected_employees)} · {pct(rule.affected_share)}
               </span>
@@ -340,6 +444,11 @@ function RuleRow({ rule, run, siteFilter, open, onToggle }) {
               <p className="text-xs leading-relaxed mt-1" style={{ color: T.ink2 }}>{rule.requirement}</p>
               <Caption className="mt-3">Why a breach matters</Caption>
               <p className="text-xs leading-relaxed mt-1" style={{ color: T.ink2 }}>{rule.consequence}</p>
+              <Caption className="mt-3">Where the breaches are</Caption>
+              <p className="text-xs leading-relaxed mt-1" style={{ color: T.ink2 }}>
+                {rule.segments.join(" · ")} — {pct(rule.org_share)} of the whole department, which is
+                what the compliance score above spends on this rule.
+              </p>
             </div>
             <div>
               <Caption>{rule.source} — as written</Caption>
@@ -371,10 +480,11 @@ function RuleRow({ rule, run, siteFilter, open, onToggle }) {
           <div className="flex flex-col">
             {violations.length === 0 ? (
               <div className="px-4 py-6 text-center text-xs" style={{ color: T.faint }}>
-                None of the shown occurrences are at {siteFilter}.
+                None of the shown occurrences match those filters.
               </div>
             ) : violations.map((v, i) => (
-              <ViolationRow key={`${v.matricula}-${v.date}-${i}`} v={v} meta={meta} symbol={symbol} />
+              <ViolationRow key={`${v.matricula}-${v.date}-${i}`} v={v} meta={meta} symbol={symbol}
+                showAgreement={rule.agreements.length > 1} />
             ))}
           </div>
         </div>
@@ -383,7 +493,7 @@ function RuleRow({ rule, run, siteFilter, open, onToggle }) {
   );
 }
 
-function ViolationRow({ v, meta, symbol }) {
+function ViolationRow({ v, meta, symbol, showAgreement }) {
   return (
     <div className="px-4 py-2.5 flex items-start gap-3 flex-wrap" style={{ borderTop: `1px solid ${T.line}` }}>
       <div style={{ width: 190 }} className="min-w-0">
@@ -394,6 +504,14 @@ function ViolationRow({ v, meta, symbol }) {
         <div className="truncate inline-flex items-center gap-1" style={{ fontSize: 10.5, color: T.faint }}>
           <Building2 size={9} /> {v.site}
         </div>
+        {/* Which agreement this person sits under. Shown only where the rule spans more than one —
+            otherwise it is the same string on every row and carries no information. */}
+        {showAgreement && (
+          <div className="truncate inline-flex items-center gap-1" style={{ fontSize: 10.5, color: T.faint }}
+            title={v.agreement}>
+            <Scale size={9} /> {v.agreement}
+          </div>
+        )}
       </div>
       <div className="min-w-0 flex-1" style={{ minWidth: 240 }}>
         <div className="flex items-center gap-2 flex-wrap">
@@ -451,7 +569,7 @@ function ClearRules({ rules }) {
           <div className="min-w-0">
             <div className="text-xs font-semibold" style={{ color: T.ink2 }}>{rule.title}</div>
             <div className="text-xs mt-0.5" style={{ color: T.faint }}>
-              {rule.source} · {rule.limit_label}
+              {rule.source} · {rule.limit_label} · binds {num(rule.population)}
             </div>
             {rule.clear_note && (
               <div className="text-xs leading-snug mt-1 rounded-lg px-2.5 py-1.5"
@@ -466,19 +584,24 @@ function ClearRules({ rules }) {
   );
 }
 
-/* Rules a *different* rule displaces. Stating them is the difference between "this does not apply" and
-   "nobody looked" — and on a 12×36 roster that distinction is the whole legal argument. */
+/* Rules a *different* rule displaces, and which agreement's population they were displaced for.
+   Stating them is the difference between "this does not apply" and "nobody looked" — and on a 12×36
+   clinical team sitting inside an HR department, that distinction is the whole legal argument. */
 function Exclusions({ exclusions }) {
   return (
     <div className="mt-3 rounded-xl overflow-hidden" style={{ background: T.panel, border: `1px solid ${T.line}` }}>
       <div className="px-4 py-2.5 flex items-center gap-2" style={{ borderBottom: `1px solid ${T.line}` }}>
         <Ban size={13} color={T.faint} />
-        <span className="text-sm font-semibold" style={{ color: T.ink }}>Not applied to this group</span>
+        <span className="text-sm font-semibold" style={{ color: T.ink }}>Not applied to part of this department</span>
         <span className="text-xs" style={{ color: T.faint }}>and why — an exclusion is not a pass</span>
       </div>
-      {exclusions.map((x) => (
-        <div key={x.rule} className="px-4 py-2.5" style={{ borderTop: `1px solid ${T.line}` }}>
-          <div className="text-xs font-semibold" style={{ color: T.ink2 }}>{x.rule}</div>
+      {exclusions.map((x, i) => (
+        <div key={`${x.agreement}-${x.rule}-${i}`} className="px-4 py-2.5" style={{ borderTop: `1px solid ${T.line}` }}>
+          <div className="flex items-baseline gap-2 flex-wrap">
+            <span className="text-xs font-semibold" style={{ color: T.ink2 }}>{x.rule}</span>
+            <span className="rounded px-1.5 py-0.5 font-semibold"
+              style={{ background: "#eef2ff", color: "#4338ca", fontSize: 10 }}>{x.agreement}</span>
+          </div>
           <div className="text-xs leading-relaxed mt-0.5" style={{ color: T.muted }}>{x.why}</div>
         </div>
       ))}
@@ -520,17 +643,33 @@ function CopyReport({ run, fireToast }) {
 }
 
 function reportMarkdown(run) {
-  const { group, totals, period } = run;
+  const { department: dept, totals, period, segments } = run;
   const lines = [
-    `# Payroll validation — ${group.name}`,
+    `# Payroll validation — ${dept.name}`,
     "",
+    `**Organizational arm:** ${dept.arm_name}`,
     `**Period:** ${period.label} (${period.start} → ${period.end})`,
-    `**Population:** ${totals.employees} employees · ${group.category}`,
-    `**${group.cct_instrument}:** ${group.cct_official} (${group.cct_registration}, ${group.cct_validity})`,
-    `**Union:** ${group.union_official}`,
-    `**Employers' side:** ${group.employer_body}`,
+    `**Population:** ${totals.employees} employees in ${dept.country_name}, across ` +
+      `${totals.agreements} collective agreement${totals.agreements === 1 ? "" : "s"}`,
     `**Punch source:** ${run.punch_source}`,
     "",
+    "## The populations validated",
+    "",
+  ];
+  segments.forEach((s) => {
+    lines.push(
+      `### ${s.label} — ${s.headcount} employees`,
+      "",
+      `- **${s.agreement.instrument}:** ${s.agreement.cct_official}`,
+      `- **${s.agreement.registry}:** ${s.agreement.cct_registration} (${s.agreement.cct_validity})`,
+      `- **Category:** ${s.agreement.category}`,
+      `- **Union:** ${s.agreement.union_official}`,
+      `- **Employers' side:** ${s.agreement.employer_body}`,
+      `- **Rules applied:** ${s.agreement.rule_count} · **breached:** ${s.rules_breached}`,
+      "",
+    );
+  });
+  lines.push(
     `## Compliance score: ${run.score}/100 (grade ${run.grade})`,
     "",
     `${run.score_basis}`,
@@ -542,14 +681,17 @@ function reportMarkdown(run) {
     "",
     "## Breaches",
     "",
-  ];
+  );
   run.rules.filter((r) => r.status === "breach").forEach((r) => {
     lines.push(
       `### [${SEV[r.severity].label}] ${r.title}`,
       "",
       `- **Limit:** ${r.limit_label}`,
       `- **Basis:** ${r.source}`,
-      `- **Affected:** ${r.affected_employees} employees (${pct(r.affected_share)}), ${r.occurrences} occurrences`,
+      `- **Applies to:** ${r.agreements.map((a) => a.short).join(", ")} — ${r.population} of ${totals.employees} employees`,
+      `- **Affected:** ${r.affected_employees} (${pct(r.affected_share)} of those it binds, ` +
+        `${pct(r.org_share)} of the department), ${r.occurrences} occurrences`,
+      `- **Found in:** ${r.segments.join(", ")}`,
       `- **Estimated exposure:** ${money(r.exposure, totals.symbol)}`,
       `- **Capability:** ${r.capability}`,
       "",
@@ -571,9 +713,9 @@ function reportMarkdown(run) {
     clear.forEach((r) => lines.push(`- **${r.title}** (${r.source})${r.clear_note ? ` — ${r.clear_note}` : ""}`));
     lines.push("");
   }
-  if (group.exclusions.length) {
-    lines.push("## Not applied to this group", "");
-    group.exclusions.forEach((x) => lines.push(`- **${x.rule}** — ${x.why}`));
+  if (dept.exclusions.length) {
+    lines.push("## Not applied to part of this department", "");
+    dept.exclusions.forEach((x) => lines.push(`- **${x.rule}** (${x.agreement}) — ${x.why}`));
     lines.push("");
   }
   lines.push("---", "", "Generated by LawTrack AI · a cited draft for expert review, not legal advice.");
